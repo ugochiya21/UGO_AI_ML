@@ -21,6 +21,7 @@ import requests
 from agent.instruments import Instrument
 
 CACHE = Path("data/prices")
+RAW = Path("data/raw/dukascopy")
 COLS = ["open", "high", "low", "close"]
 
 # Some data sites reject requests that don't look like a browser.
@@ -146,18 +147,33 @@ def _point(symbol: str) -> float:
 def dukascopy(symbol: str, start: str, end: str) -> pd.DataFrame:
     """Monthly files of hourly BID candles:
     https://datafeed.dukascopy.com/datafeed/{SYM}/{YYYY}/{MM-1:02}/BID_candles_hour_1.bi5
-    Each record: >IIIIIf = seconds-from-month-start, open, close, low, high, volume."""
+    Each record: >IIIIIf = seconds-from-month-start, open, close, low, high, volume.
+
+    Each finished month is kept under data/raw/ as soon as it arrives, so an
+    interrupted download (Dukascopy blocks fast clients for a while) resumes
+    where it stopped instead of starting the market over."""
     point = _point(symbol)
+    raw_dir = RAW / symbol
+    this_month = pd.Timestamp.now(tz="UTC").strftime("%Y-%m")
     rows, missing = [], []
     for month in pd.date_range(pd.Timestamp(start).replace(day=1), end, freq="MS"):
-        url = (f"https://datafeed.dukascopy.com/datafeed/{symbol}/{month.year}/"
-               f"{month.month - 1:02d}/BID_candles_hour_1.bi5")
-        r = _get(url)
-        _time.sleep(0.5)   # be polite: Dukascopy rate-limits fast clients
-        if r is None or not r.content:
-            missing.append(month.strftime("%Y-%m"))
+        ym = month.strftime("%Y-%m")
+        kept = raw_dir / f"{ym}.bi5"
+        if kept.exists():
+            content = kept.read_bytes()
+        else:
+            url = (f"https://datafeed.dukascopy.com/datafeed/{symbol}/{month.year}/"
+                   f"{month.month - 1:02d}/BID_candles_hour_1.bi5")
+            r = _get(url)
+            _time.sleep(1.5)   # be polite: Dukascopy blocks fast clients
+            content = r.content if r is not None else b""
+            if content and ym < this_month:   # the current month isn't final yet
+                raw_dir.mkdir(parents=True, exist_ok=True)
+                kept.write_bytes(content)
+        if not content:
+            missing.append(ym)
             continue
-        raw = lzma.decompress(r.content)
+        raw = lzma.decompress(content)
         base = datetime(month.year, month.month, 1, tzinfo=timezone.utc).timestamp()
         for off, o, c, lo, hi, vol in struct.iter_unpack(">IIIIIf", raw):
             if vol > 0:   # zero-volume hours are market-closed fillers
