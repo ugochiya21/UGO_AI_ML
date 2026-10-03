@@ -85,7 +85,8 @@ def main():
 
     # 1. Economic calendar
     events = []
-    if not args.no_news or not args.no_macro or set(args.strategies) & set(fundamental.STRATEGIES):
+    if (not args.no_news or not args.no_macro
+            or set(args.strategies) & (set(fundamental.STRATEGIES) | {"trend_fund"})):
         if not CAL_PATH.exists():
             print("Downloading Forex Factory calendar history ...")
             calendar.download_history(CAL_PATH)
@@ -129,6 +130,9 @@ def main():
             min_stop = spread_cost(df, inst) / 0.08
             if "trend" in args.strategies:
                 parts.append(trend.generate(df, inst, min_stop_frac=min_stop))
+            if "trend_fund" in args.strategies:
+                parts.append(fundamental.agree_filter(
+                    trend.generate(df, inst, min_stop_frac=min_stop), inst, events))
             parts += [fundamental.STRATEGIES[s](df, inst, events, min_stop_frac=min_stop)
                       for s in args.strategies if s in fundamental.STRATEGIES]
             parts = [p for p in parts if len(p)]

@@ -113,3 +113,28 @@ def cb_divergence(df, inst, events, **kw):
 
 
 STRATEGIES = {"surprise_momentum": surprise_momentum, "cb_divergence": cb_divergence}
+
+
+def agree_filter(sig: pd.DataFrame, inst: Instrument, events, surprise_min: int = 2,
+                 cb_min: int = 1) -> pd.DataFrame:
+    """Keep only signals the fundamentals agree with (at the decision time):
+    30-day surprise edge >= surprise_min in the trade's direction, OR 180-day
+    central-bank divergence >= cb_min in that direction."""
+    if sig is None or not len(sig):
+        return sig
+    if inst.asset_class == FOREX:
+        legs = {inst.news_currencies[0]: 1, inst.news_currencies[1]: -1}
+        cb_legs = legs
+    elif inst.symbol == "GOLDUSDC":
+        legs, cb_legs = {"USD": -1}, {"USD": -1}
+    else:
+        return sig.iloc[0:0]
+    known_at = sig.index + BAR
+    sp, cp = _points(events, "surprise"), _points(events, "rates")
+    s_edge = sum(w * _score_at(sp.get(c), known_at, pd.Timedelta(days=30)) for c, w in legs.items())
+    c_edge = sum(w * _score_at(cp.get(c), known_at, pd.Timedelta(days=180)) for c, w in cb_legs.items())
+    d = sig["direction"].to_numpy()
+    ok = (np.asarray(s_edge) * d >= surprise_min) | (np.asarray(c_edge) * d >= cb_min)
+    out = sig[ok].copy()
+    out["strategy"] = out["strategy"] + "+fund"
+    return out
