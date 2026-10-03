@@ -37,8 +37,8 @@ class RiskConfig:
     reduced_risk_per_trade_pct: float = 0.0025
 
     # Move stop to breakeven once price has moved this many R in our favour.
-    # None = never move the stop (the owner is still deciding; see backtests).
-    breakeven_at_r: float | None = 1.0
+    # None = never move the stop (owner's decision after the backtests).
+    breakeven_at_r: float | None = None
     # Owner's rule: a new trade only after a trade hits TP. A trade sitting
     # at breakeven still holds its slot until it closes. Set True to let a
     # breakeven trade free its budget early (the original design).
