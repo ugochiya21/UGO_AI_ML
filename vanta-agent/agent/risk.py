@@ -96,7 +96,7 @@ class RiskManager:
 
         if now.weekday() >= 5 and inst.asset_class != CRYPTO:
             return no("market closed (weekend)")
-        if (now.weekday() == 4 and now.hour >= r.friday_flat_hour_utc - 4
+        if (r.flat_on_weekend and now.weekday() == 4 and now.hour >= r.friday_flat_hour_utc - 4
                 and inst.asset_class != CRYPTO):
             return no("too close to the Friday close")
 

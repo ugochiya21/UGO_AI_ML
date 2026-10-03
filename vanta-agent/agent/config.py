@@ -84,6 +84,8 @@ class RiskConfig:
     # --- Weekend -----------------------------------------------------------
     # Flatten non-crypto positions after this hour (UTC) on Friday.
     friday_flat_hour_utc: int = 20
+    # False = hold positions over the weekend (Vanta allows it).
+    flat_on_weekend: bool = True
     crypto_weekend_risk_factor: float = 0.5
 
     # Max positions sharing the same directional exposure (e.g. two trades

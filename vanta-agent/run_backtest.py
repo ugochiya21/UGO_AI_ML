@@ -22,7 +22,7 @@ from agent.news import calendar
 from agent.news.guard import NewsGuard
 from agent.strategies import features, session_sweep, trend_pullback
 from agent.strategies import intraday as intraday_strats
-from agent.strategies import mtf, playbook, research
+from agent.strategies import mtf, playbook, research, trend
 
 CAL_PATH = Path("data/forexfactory_calendar.csv")
 
@@ -40,9 +40,12 @@ def main():
     ap.add_argument("--synthetic", action="store_true")
     ap.add_argument("--no-news", action="store_true", help="disable the news rule (for comparison)")
     ap.add_argument("--no-macro", action="store_true", help="disable the fundamental filter")
-    ap.add_argument("--tf", choices=["1h", "15m", "5m"], default="5m",
+    ap.add_argument("--tf", choices=["1h", "1hx", "15m", "5m"], default="5m",
                     help="5m: owner's intraday 1h/15m/5m strategies (default); "
-                         "15m: earlier intraday; 1h: earlier swing")
+                         "15m: earlier intraday; 1h: earlier swing; "
+                         "1hx: hourly bars built from the 5m data (Claude's trend strategy)")
+    ap.add_argument("--hold-weekends", action="store_true",
+                    help="keep positions open over the weekend (Vanta allows it)")
     ap.add_argument("--strategies", nargs="*",
                     help="1h: trend_pullback session_sweep; 15m: intraday_pullback orb; "
                          "5m: mtf_pullback orb5 playbook late_momentum nr7_orb")
@@ -67,10 +70,12 @@ def main():
     if args.risk_per_trade:
         over["risk_per_trade_pct"] = args.risk_per_trade
         over["reduced_risk_per_trade_pct"] = args.risk_per_trade / 2
+    if args.hold_weekends:
+        over["flat_on_weekend"] = False
     if args.min_hours_before_news:
         over["min_hours_before_news"] = args.min_hours_before_news
     if not args.strategies:
-        args.strategies = {"1h": ["trend_pullback", "session_sweep"],
+        args.strategies = {"1h": ["trend_pullback", "session_sweep"], "1hx": ["trend"],
                            "15m": list(intraday_strats.STRATEGIES),
                            "5m": list(mtf.STRATEGIES)}[args.tf]
     if args.min_score:
@@ -100,10 +105,16 @@ def main():
             if args.synthetic:
                 from agent.data import synthetic
                 df = synthetic.make(inst, data_start, args.end, seed=i)
-            elif args.tf in ("15m", "5m"):
+            elif args.tf in ("15m", "5m", "1hx"):
                 from agent.data import intraday
                 df = intraday.load(inst, data_start, args.end,
-                                   rule={"15m": "15min", "5m": "5min"}[args.tf])
+                                   rule={"15m": "15min", "5m": "5min", "1hx": "5min"}[args.tf])
+                if args.tf == "1hx":
+                    agg = {"open": "first", "high": "max", "low": "min", "close": "last"}
+                    if "spread" in df:
+                        agg["spread"] = "median"
+                    df = df.resample("1h", label="left", closed="left").agg(agg).dropna(
+                        subset=["close"])
             else:
                 from agent.data import loaders
                 df = loaders.load(inst, data_start, args.end)
@@ -114,7 +125,9 @@ def main():
             print(f"  ! {sym}: only {len(df)} bars, skipped")
             continue
         parts = []
-        if args.tf == "5m":
+        if args.tf == "1hx":
+            parts = [trend.generate(df, inst, min_stop_frac=spread_cost(df, inst) / 0.08)]
+        elif args.tf == "5m":
             f = mtf.features(df, inst)
             # Stop never so tight that Vanta's spread + slippage exceed 8% of the risk.
             min_stop = spread_cost(df, inst) / 0.08
@@ -144,7 +157,7 @@ def main():
         raise SystemExit("No price data loaded.")
 
     # 3. Backtest
-    bar = pd.Timedelta({"1h": "1h", "15m": "15min", "5m": "5min"}[args.tf])
+    bar = pd.Timedelta({"1h": "1h", "1hx": "1h", "15m": "15min", "5m": "5min"}[args.tf])
     bt = Backtester(cfg, bars, signals, news=news, macro=macro, bar=bar,
                     costs={s: spread_cost(df, instruments.get(s)) for s, df in bars.items()})
     res = bt.run(args.start, args.end)

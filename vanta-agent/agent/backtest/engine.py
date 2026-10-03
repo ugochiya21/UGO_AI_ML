@@ -151,7 +151,7 @@ class Backtester:
                         close(p, o, t, "session_end")
                         continue
                     # Weekend rule.
-                    if (inst.asset_class != CRYPTO and t.weekday() == 4
+                    if (cfg.risk.flat_on_weekend and inst.asset_class != CRYPTO and t.weekday() == 4
                             and t.hour >= cfg.risk.friday_flat_hour_utc):
                         close(p, o, t, "weekend")
                         continue
