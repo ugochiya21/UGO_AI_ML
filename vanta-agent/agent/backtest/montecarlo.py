@@ -16,7 +16,8 @@ def simulate(r_multiples, cfg: AgentConfig, runs: int = 10_000, max_trades: int 
     start = cfg.rules.account_size
     target = start * (1 + cfg.rules.profit_target_pct)
     # Our own stop line, not Vanta's - trading halts here.
-    halt = start * cfg.risk.stop_trading_below
+    # (None = never halt: the owner's "never stop trading" rule.)
+    halt = start * cfg.risk.stop_trading_below if cfg.risk.stop_trading_below else 0.0
     fail = start * (1 - cfg.rules.static_drawdown_pct)
     passed = failed = halted = 0
     trades_to_pass = []

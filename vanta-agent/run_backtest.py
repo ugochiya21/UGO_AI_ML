@@ -37,9 +37,11 @@ def main():
     ap.add_argument("--warmup-days", type=int, default=300,
                     help="price history loaded before --start so indicators are ready on day 1")
     ap.add_argument("--breakeven", choices=["on", "off"], help="move stop to entry at +1R")
-    ap.add_argument("--after-sl", choices=["half_2tp", "wait_2tp", "none"],
+    ap.add_argument("--after-sl", choices=["wait_tp", "half_2tp", "wait_2tp", "none"],
                     help="what happens after a stop-loss (see config.py)")
     ap.add_argument("--min-score", type=int, help="minimum setup score (default 8)")
+    ap.add_argument("--risk-per-trade", type=float,
+                    help="risk per trade as a fraction, e.g. 0.0025 = 0.25%% (default 0.005)")
     ap.add_argument("--out", default="results")
     args = ap.parse_args()
     cfg = AgentConfig()
@@ -48,6 +50,9 @@ def main():
         over["breakeven_at_r"] = 1.0 if args.breakeven == "on" else None
     if args.after_sl:
         over["after_stop_loss"] = args.after_sl
+    if args.risk_per_trade:
+        over["risk_per_trade_pct"] = args.risk_per_trade
+        over["reduced_risk_per_trade_pct"] = args.risk_per_trade / 2
     if args.min_score:
         over["min_setup_score"] = args.min_score
     cfg.risk = replace(cfg.risk, **over)

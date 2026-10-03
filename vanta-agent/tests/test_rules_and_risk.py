@@ -103,9 +103,11 @@ def test_breakeven_frees_budget_when_enabled():
     assert d.approved and d.risk_usd <= 25 + 1e-9
 
 
-def test_after_stop_loss_half_size_until_two_tps(rm):
-    d = rm.approve(sig(), get("EURUSD"), [], balance=5000, equity=5000,
-                   day_open_equity=5000, now=T, tps_owed=2)
+def test_after_stop_loss_half_size_until_two_tps():
+    cfg = AgentConfig()
+    object.__setattr__(cfg.risk, "after_stop_loss", "half_2tp")
+    d = RiskManager(cfg).approve(sig(), get("EURUSD"), [], balance=5000, equity=5000,
+                                 day_open_equity=5000, now=T, tps_owed=2)
     assert d.approved and d.risk_usd == pytest.approx(12.5)
 
 
@@ -132,7 +134,9 @@ def test_rejects_correlated_trade(rm):
 
 
 def test_safety_lines(rm):
-    assert not approve(rm, sig(), equity=4790).approved          # below $4,800
+    # Owner: never stop trading - below $4,800 still trades, at reduced size.
+    low = approve(rm, sig(), equity=4790, day_open=4790)
+    assert low.approved and low.risk_usd == pytest.approx(12.5)
     small = approve(rm, sig(), equity=4860, day_open=4860)        # below $4,875
     assert small.approved and small.risk_usd == pytest.approx(12.5)
     assert not approve(rm, sig(), equity=5040, day_open=5100).approved  # -1.2% today
@@ -157,3 +161,14 @@ def test_weekend_rules(rm):
     btc = Signal("BTCUSDC", 1, 50000, 49500, 51250, "test", 9, sat)
     d = approve(rm, btc, now=sat)
     assert d.approved and d.risk_usd == pytest.approx(12.5)   # half size on weekends
+
+
+def test_after_stop_loss_wait_for_a_tp_while_trades_are_open(rm):
+    other = pos("GOLDUSDC", 1, 2000, 1990, notional=2500)     # still open
+    d = rm.approve(sig(), get("EURUSD"), [other], balance=4975, equity=4975,
+                   day_open_equity=4975, now=T, tps_owed=1)
+    assert not d.approved and "hit TP" in d.reason
+    # Nothing left open: look for new setups again.
+    d = rm.approve(sig(), get("EURUSD"), [], balance=4950, equity=4950,
+                   day_open_equity=4950, now=T, tps_owed=1)
+    assert d.approved

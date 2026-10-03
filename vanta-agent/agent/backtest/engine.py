@@ -107,7 +107,7 @@ class Backtester:
             ch_trades += 1
             consecutive_losses = consecutive_losses + 1 if net < 0 else 0
             if reason == "stop" and cfg.risk.after_stop_loss != "none":
-                tps_owed = cfg.risk.tps_to_recover
+                tps_owed = 1 if cfg.risk.after_stop_loss == "wait_tp" else cfg.risk.tps_to_recover
             elif reason == "target":
                 tps_owed = max(0, tps_owed - 1)
 
@@ -167,6 +167,8 @@ class Backtester:
             status = monitor.check(t, equity + worst_eq_adj, balance)
 
             if status == ACTIVE:
+                if not positions and cfg.risk.after_stop_loss == "wait_tp":
+                    tps_owed = 0   # nothing left open: look for new setups again
                 self._enter(t, sigs, positions, last_close, balance, equity, monitor,
                             consecutive_losses, reject, tps_owed)
                 # Entry fees are paid immediately.

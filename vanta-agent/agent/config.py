@@ -44,11 +44,13 @@ class RiskConfig:
     # breakeven trade free its budget early (the original design).
     breakeven_frees_budget: bool = False
     # Owner's rule after a stop-loss:
-    #   "wait_2tp" - no new trade until two open trades have hit TP (exactly
-    #                as stated; can never resume if <2 trades are left open)
+    #   "wait_tp"  - no new trade until one of the still-open trades hits TP;
+    #                if none are left open, look for new setups again
+    #   "wait_2tp" - no new trade until two trades hit TP (stalls: tested,
+    #                fails every challenge on Vanta's 60-day inactivity rule)
     #   "half_2tp" - keep trading at reduced size until two TPs come in
     #   "none"     - no special treatment
-    after_stop_loss: str = "half_2tp"
+    after_stop_loss: str = "wait_tp"
     tps_to_recover: int = 2
     # Minimum reward:risk for a trade to be considered.
     min_reward_risk: float = 2.0
@@ -58,7 +60,9 @@ class RiskConfig:
     # --- Safety lines (fractions of starting balance) ---------------------
     # Vanta fails us at -5% ($4,750). We act much earlier.
     reduce_risk_below: float = 0.975   # $4,875: switch to reduced risk
-    stop_trading_below: float = 0.96   # $4,800: no new trades at all
+    # $4,800: no new trades at all. Off (None) by the owner's rule "never stop
+    # trading": a halted account is eliminated after 60 days without an order.
+    stop_trading_below: float | None = None
     # Daily loss stop measured from the day's opening equity.
     daily_loss_stop_pct: float = 0.01
     # Near the target, shrink risk so the pass is not given back.

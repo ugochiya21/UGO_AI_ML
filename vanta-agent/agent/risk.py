@@ -71,6 +71,8 @@ class RiskManager:
         no = lambda why: Decision(False, why)  # noqa: E731
         if tps_owed and r.after_stop_loss == "wait_2tp":
             return no("after a stop-loss: waiting for two TPs")
+        if tps_owed and r.after_stop_loss == "wait_tp" and positions:
+            return no("after a stop-loss: waiting for an open trade to hit TP")
 
         if sig.score < r.min_setup_score:
             return no(f"score {sig.score} < {r.min_setup_score}")
@@ -78,7 +80,7 @@ class RiskManager:
             return no(f"reward:risk {sig.reward_risk:.2f} < {r.min_reward_risk}")
         if sig.direction * (sig.entry - sig.stop) <= 0:
             return no("stop on wrong side of entry")
-        if equity < self.start * r.stop_trading_below:
+        if r.stop_trading_below is not None and equity < self.start * r.stop_trading_below:
             return no("equity below safety line - trading halted")
         if equity < day_open_equity * (1 - r.daily_loss_stop_pct):
             return no("daily loss stop hit")
