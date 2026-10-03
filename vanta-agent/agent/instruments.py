@@ -61,6 +61,12 @@ UNIVERSE = {i.symbol: i for i in [
     _fx("USDCAD", "USD", "CAD"), _fx("USDCHF", "USD", "CHF"),
     _fx("NZDUSD", "NZD", "USD"), _fx("EURJPY", "EUR", "JPY"),
     _fx("GBPJPY", "GBP", "JPY"),
+    # Crosses - all enabled on Vanta (vali_objects/trade_pair.py)
+    *[_fx(b + q, b, q) for b, q in [
+        ("AUD", "CAD"), ("AUD", "CHF"), ("AUD", "JPY"), ("AUD", "NZD"),
+        ("CAD", "CHF"), ("CAD", "JPY"), ("CHF", "JPY"), ("EUR", "AUD"), ("EUR", "CAD"),
+        ("EUR", "CHF"), ("EUR", "GBP"), ("EUR", "NZD"), ("GBP", "AUD"), ("GBP", "CAD"),
+        ("GBP", "CHF"), ("GBP", "NZD"), ("NZD", "CAD"), ("NZD", "CHF"), ("NZD", "JPY")]],
     # Commodities (Hyperliquid perps on Vanta)
     Instrument("GOLDUSDC", COMMODITIES, ("USD",), {"GOLD": 1, "USD": -1}, 1.0, "dukascopy", "XAUUSD"),
     Instrument("SILVERUSDC", COMMODITIES, ("USD",), {"GOLD": 1, "USD": -1}, 0.5, "dukascopy", "XAGUSD"),

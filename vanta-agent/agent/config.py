@@ -75,6 +75,10 @@ class RiskConfig:
     # Also flatten/block markets CORRELATED with the news currency, not
     # just the ones that contain it (owner's rule).
     news_include_correlated: bool = True
+    # Owner: only enter if the next related high-impact event is at least
+    # this many hours away (time a trade typically needs to reach TP).
+    # None = off.
+    min_hours_before_news: float | None = None
 
     # --- Weekend -----------------------------------------------------------
     # Flatten non-crypto positions after this hour (UTC) on Friday.

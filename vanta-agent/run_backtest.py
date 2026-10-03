@@ -21,6 +21,7 @@ from agent.macro import CalendarSurprise
 from agent.news import calendar
 from agent.news.guard import NewsGuard
 from agent.strategies import features, session_sweep, trend_pullback
+from agent.strategies import intraday as intraday_strats
 
 CAL_PATH = Path("data/forexfactory_calendar.csv")
 
@@ -33,7 +34,12 @@ def main():
     ap.add_argument("--synthetic", action="store_true")
     ap.add_argument("--no-news", action="store_true", help="disable the news rule (for comparison)")
     ap.add_argument("--no-macro", action="store_true", help="disable the fundamental filter")
-    ap.add_argument("--strategies", nargs="*", default=["trend_pullback", "session_sweep"])
+    ap.add_argument("--tf", choices=["1h", "15m"], default="1h",
+                    help="bar size: 1h (swing strategies) or 15m (intraday strategies)")
+    ap.add_argument("--strategies", nargs="*",
+                    help="1h: trend_pullback session_sweep; 15m: intraday_pullback orb")
+    ap.add_argument("--min-hours-before-news", type=float,
+                    help="skip entries when related high-impact news is due sooner")
     ap.add_argument("--warmup-days", type=int, default=300,
                     help="price history loaded before --start so indicators are ready on day 1")
     ap.add_argument("--breakeven", choices=["on", "off"], help="move stop to entry at +1R")
@@ -53,6 +59,11 @@ def main():
     if args.risk_per_trade:
         over["risk_per_trade_pct"] = args.risk_per_trade
         over["reduced_risk_per_trade_pct"] = args.risk_per_trade / 2
+    if args.min_hours_before_news:
+        over["min_hours_before_news"] = args.min_hours_before_news
+    if not args.strategies:
+        args.strategies = (["trend_pullback", "session_sweep"] if args.tf == "1h"
+                           else list(intraday_strats.STRATEGIES))
     if args.min_score:
         over["min_setup_score"] = args.min_score
     cfg.risk = replace(cfg.risk, **over)
@@ -80,6 +91,9 @@ def main():
             if args.synthetic:
                 from agent.data import synthetic
                 df = synthetic.make(inst, data_start, args.end, seed=i)
+            elif args.tf == "15m":
+                from agent.data import intraday
+                df = intraday.load(inst, data_start, args.end)
             else:
                 from agent.data import loaders
                 df = loaders.load(inst, data_start, args.end)
@@ -89,12 +103,16 @@ def main():
         if len(df) < 2000:
             print(f"  ! {sym}: only {len(df)} bars, skipped")
             continue
-        f = features.build(df, inst)
         parts = []
-        if "trend_pullback" in args.strategies:
-            parts.append(trend_pullback.generate(f))
-        if "session_sweep" in args.strategies:
-            parts.append(session_sweep.generate(f, inst))
+        if args.tf == "15m":
+            f = intraday_strats.features(df, inst)
+            parts = [intraday_strats.STRATEGIES[s](f, inst) for s in args.strategies]
+        else:
+            f = features.build(df, inst)
+            if "trend_pullback" in args.strategies:
+                parts.append(trend_pullback.generate(f))
+            if "session_sweep" in args.strategies:
+                parts.append(session_sweep.generate(f, inst))
         signals[sym] = pd.concat([p for p in parts if len(p)]) if any(len(p) for p in parts) \
             else pd.DataFrame()
         bars[sym] = df
@@ -104,7 +122,8 @@ def main():
         raise SystemExit("No price data loaded.")
 
     # 3. Backtest
-    bt = Backtester(cfg, bars, signals, news=news, macro=macro)
+    bar = pd.Timedelta("15min") if args.tf == "15m" else pd.Timedelta("1h")
+    bt = Backtester(cfg, bars, signals, news=news, macro=macro, bar=bar)
     res = bt.run(args.start, args.end)
     print(report.summary(res))
 

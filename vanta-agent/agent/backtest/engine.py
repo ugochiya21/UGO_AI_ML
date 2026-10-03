@@ -57,8 +57,9 @@ class BacktestResult:
 class Backtester:
     def __init__(self, cfg: AgentConfig, bars: dict[str, pd.DataFrame],
                  signals: dict[str, pd.DataFrame], news: NewsGuard | None = None,
-                 macro=None):
+                 macro=None, bar: pd.Timedelta = BAR):
         self.cfg = cfg
+        self.bar = bar   # bar length: 1h by default, 15min for intraday
         self.bars = bars
         self.signals = signals
         self.news = news
@@ -131,14 +132,14 @@ class Backtester:
                 inst = get(sym)
                 for p in [p for p in positions if p.symbol == sym]:
                     # Carry for the hour held.
-                    p.carry += p.notional * inst.daily_carry / 24
+                    p.carry += p.notional * inst.daily_carry * (self.bar / pd.Timedelta("1D"))
                     # Weekend rule.
                     if (inst.asset_class != CRYPTO and t.weekday() == 4
                             and t.hour >= cfg.risk.friday_flat_hour_utc):
                         close(p, o, t, "weekend")
                         continue
                     # News rule.
-                    if self.news and self.news.must_flatten(inst, t, horizon=BAR):
+                    if self.news and self.news.must_flatten(inst, t, horizon=self.bar):
                         close(p, o, t, "news")
                         continue
                     # Gap through stop at the open.
@@ -199,16 +200,24 @@ class Backtester:
                consecutive_losses, reject, tps_owed=0):
         # Best setups first.
         candidates = sorted(sigs.get(t, ()), key=lambda x: -x[1].score)
-        decision_time = t + BAR   # signal is known at the bar's close
+        decision_time = t + self.bar   # signal is known at the bar's close
         for sym, row in candidates:
             inst = get(sym)
             entry = last_close.get(sym)
             if entry is None:
                 continue
             if self.news and (self.news.blocks_entry(inst, decision_time)
-                              or self.news.must_flatten(inst, decision_time, horizon=BAR)):
+                              or self.news.must_flatten(inst, decision_time, horizon=self.bar)):
                 reject("news window")
                 continue
+            # Owner: don't open a trade that has no time to reach TP before
+            # the next high-impact news for this market closes it.
+            need = self.cfg.risk.min_hours_before_news
+            if self.news and need:
+                nxt = self.news.next_event(inst, decision_time)
+                if nxt is not None and nxt.time - decision_time < pd.Timedelta(hours=need):
+                    reject("news due before TP could be reached")
+                    continue
             sig = Signal(sym, int(row.direction), entry, float(row.stop),
                          float(row.take_profit), row.strategy, int(row.score), decision_time)
             if self.macro is not None:

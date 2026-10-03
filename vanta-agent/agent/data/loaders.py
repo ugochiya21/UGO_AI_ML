@@ -108,23 +108,27 @@ def crypto(symbol: str, start: str, end: str) -> pd.DataFrame:
 
 
 def bitstamp(symbol: str, start: str, end: str) -> pd.DataFrame:
-    """Bitstamp public OHLC, 1000 hourly bars per request. Quoted in USD
-    (Binance uses USDT; the two differ by well under 0.5%)."""
+    return bitstamp_ohlc(symbol, start, end, step=3600)
+
+
+def bitstamp_ohlc(symbol: str, start: str, end: str, step: int = 3600) -> pd.DataFrame:
+    """Bitstamp public OHLC, 1000 bars of `step` seconds per request. Quoted
+    in USD (Binance uses USDT; the two differ by well under 0.5%)."""
     pair = symbol.lower().replace("usdt", "usd")
     url = f"https://www.bitstamp.net/api/v2/ohlc/{pair}/"
     t0 = int(pd.Timestamp(start, tz="UTC").timestamp())
     t1 = int(pd.Timestamp(end, tz="UTC").timestamp())
     rows = []
     while t0 < t1:
-        r = _get(url, params={"step": 3600, "limit": 1000, "start": t0})
+        r = _get(url, params={"step": step, "limit": 1000, "start": t0})
         batch = r.json()["data"]["ohlc"] if r is not None else []
         batch = [b for b in batch if int(b["timestamp"]) >= t0]
         if not batch:
             # Pair not listed yet at t0 (e.g. SOL before 2022): skip ahead.
-            t0 += 1000 * 3600
+            t0 += 1000 * step
             continue
         rows += [(int(b["timestamp"]), *(float(b[c]) for c in COLS)) for b in batch]
-        t0 = int(batch[-1]["timestamp"]) + 3600
+        t0 = int(batch[-1]["timestamp"]) + step
         _time.sleep(0.3)
     df = pd.DataFrame(rows, columns=["time", *COLS])
     df.index = pd.to_datetime(df.pop("time"), unit="s", utc=True)
