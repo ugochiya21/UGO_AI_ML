@@ -22,7 +22,7 @@ from agent.news import calendar
 from agent.news.guard import NewsGuard
 from agent.strategies import features, session_sweep, trend_pullback
 from agent.strategies import intraday as intraday_strats
-from agent.strategies import amd, fundamental, mtf, playbook, research, trend
+from agent.strategies import amd, fundamental, mtf, playbook, research, smc_amd, trend
 
 CAL_PATH = Path("data/forexfactory_calendar.csv")
 
@@ -154,6 +154,8 @@ def main():
                       for s in args.strategies if s in research.STRATEGIES]
             if "amd" in args.strategies:
                 parts.append(amd.generate(df, inst, min_stop_frac=min_stop))
+            if "smc_amd" in args.strategies:
+                parts.append(smc_amd.generate(df, inst, min_stop_frac=min_stop))
             parts = [p for p in parts if len(p)]
             if "playbook" in args.strategies:
                 parts.append(playbook.generate(playbook.features(df, inst), inst,
