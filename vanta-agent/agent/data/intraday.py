@@ -62,7 +62,9 @@ def load(inst: Instrument, start: str, end: str, refresh: bool = False,
         if df.empty:
             raise ValueError(f"no {tag} bars downloaded for {inst.symbol}")
         path.parent.mkdir(parents=True, exist_ok=True)
-        df.to_csv(path, compression="gzip")
+        tmp = path.with_suffix(".tmp")   # write then rename: readers never see half a file
+        df.to_csv(tmp, compression="gzip")
+        tmp.replace(path)
     return df.loc[pd.Timestamp(start, tz="UTC"):pd.Timestamp(end, tz="UTC")]
 
 
