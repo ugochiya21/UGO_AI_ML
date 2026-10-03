@@ -44,6 +44,10 @@ def main():
                     help="5m: owner's intraday 1h/15m/5m strategies (default); "
                          "15m: earlier intraday; 1h: earlier swing; "
                          "1hx: hourly bars built from the 5m data (Claude's trend strategy)")
+    ap.add_argument("--original-rules", action="store_true",
+                    help="settings of the first hourly swing test: 0.5%% per trade, breakeven "
+                         "on and freeing budget, no stop-loss lock, $4,800 safety line, news "
+                         "rule for own currencies only (costs, limits and fair news stay)")
     ap.add_argument("--hold-weekends", action="store_true",
                     help="keep positions open over the weekend (Vanta allows it)")
     ap.add_argument("--strategies", nargs="*",
@@ -70,6 +74,10 @@ def main():
     if args.risk_per_trade:
         over["risk_per_trade_pct"] = args.risk_per_trade
         over["reduced_risk_per_trade_pct"] = args.risk_per_trade / 2
+    if args.original_rules:
+        over.update(risk_per_trade_pct=0.005, reduced_risk_per_trade_pct=0.0025,
+                    breakeven_at_r=1.0, breakeven_frees_budget=True, after_stop_loss="none",
+                    stop_trading_below=0.96, news_include_correlated=False)
     if args.hold_weekends:
         over["flat_on_weekend"] = False
     if args.min_hours_before_news:
