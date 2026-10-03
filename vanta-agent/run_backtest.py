@@ -111,7 +111,7 @@ def main():
         parts = []
         if args.tf == "15m":
             f = intraday_strats.features(df, inst)
-            parts = [intraday_strats.STRATEGIES[s](f, inst) for s in args.strategies]
+            parts = [intraday_strats.STRATEGIES[s](f, inst, events) for s in args.strategies]
         else:
             f = features.build(df, inst)
             if "trend_pullback" in args.strategies:

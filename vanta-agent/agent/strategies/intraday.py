@@ -156,5 +156,75 @@ def orb(f: pd.DataFrame, inst: Instrument, rr: float = 2.0,
     return pd.concat(out).sort_index() if out else pd.DataFrame()
 
 
-STRATEGIES = {"intraday_pullback": lambda f, inst: intraday_pullback(f),
-              "orb": orb}
+
+
+
+# ---------------------------------------------------------- news momentum
+def news_momentum(f: pd.DataFrame, inst: Instrument, events, rr: float = 2.0,
+                  wait_minutes: int = 30) -> pd.DataFrame:
+    """3. news_momentum - trade WITH a high-impact surprise once the owner's
+    30-minute wait is over and price has confirmed it.
+
+    A release whose actual beats (misses) its forecast is good (bad) for
+    that currency. Waiting out the 30 minutes, if price has moved at least
+    half an hour-ATR in the direction the surprise points to, enter that way:
+    stop beyond the pre-news price, TP 2R.
+      2 surprise direction confirmed by price (required)
+      2 move >= 1 hour-ATR (strong)   1 move >= 0.5 hour-ATR
+      2 4-hour trend agrees           2 daily trend agrees   1 RSI not stretched
+    Forex, gold and silver only (indices and crypto react unpredictably to
+    the dollar)."""
+    from agent.macro import LOWER_IS_BETTER, _num
+    from agent.instruments import FOREX
+
+    if inst.asset_class not in (FOREX, COMMODITIES) or inst.symbol == "WTIOILUSDC":
+        return pd.DataFrame()
+    if inst.asset_class == FOREX:
+        base, quote = inst.news_currencies
+        leg = {base: 1, quote: -1}
+    else:
+        leg = {"USD": -1}   # gold/silver fall when the dollar strengthens
+    rows = []
+    idx = f.index
+    for e in events:
+        if e.currency not in leg:
+            continue
+        a, fc = _num(e.actual), _num(e.forecast)
+        if a is None or fc is None or a == fc:
+            continue
+        good = (1 if a > fc else -1) * (-1 if LOWER_IS_BETTER.search(e.title) else 1)
+        d = good * leg[e.currency]
+        # Bar that closes right when the news is out (pre-news price), and
+        # the first bar that closes after the 30-minute wait.
+        pre_i = idx.searchsorted(e.time - BAR)
+        go_i = idx.searchsorted(e.time + pd.Timedelta(minutes=wait_minutes))
+        if pre_i >= len(idx) or go_i >= len(idx) or idx[go_i] - e.time > pd.Timedelta("2h"):
+            continue
+        pre, now = f["close"].iloc[pre_i], f["close"].iloc[go_i]
+        h1_atr = f.h1_atr.iloc[go_i]
+        move = (now - pre) * d
+        if not (h1_atr > 0) or move < 0.5 * h1_atr:
+            continue
+        a15 = f.atr.iloc[go_i]
+        stop = pre - d * 0.2 * a15
+        if (now - stop) * d < a15:
+            stop = now - d * a15
+        if (now - stop) * d > 4 * h1_atr:
+            continue
+        r = f.rsi.iloc[go_i]
+        score = (2 + 2 * (move >= h1_atr) + (move >= 0.5 * h1_atr)
+                 + 2 * (f.h4_trend.iloc[go_i] == d) + 2 * (f.bias.iloc[go_i] == d)
+                 + ((30 < r < 75) if d == 1 else (25 < r < 70)))
+        rows.append((idx[go_i], d, stop, int(score), now + rr * (now - stop)))
+    if not rows:
+        return pd.DataFrame()
+    sig = pd.DataFrame(rows, columns=["time", "direction", "stop", "score", "take_profit"])
+    sig = sig.set_index("time").sort_index()
+    sig = sig[~sig.index.duplicated()]   # two releases at once: keep the first
+    sig["strategy"] = "news_momentum"
+    return sig
+
+
+STRATEGIES = {"intraday_pullback": lambda f, inst, ev: intraday_pullback(f),
+              "orb": lambda f, inst, ev: orb(f, inst),
+              "news_momentum": lambda f, inst, ev: news_momentum(f, inst, ev)}
