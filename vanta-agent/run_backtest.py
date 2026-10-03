@@ -8,6 +8,7 @@
 Results are written to results/.
 """
 import argparse
+from dataclasses import replace
 from pathlib import Path
 
 import pandas as pd
@@ -33,8 +34,24 @@ def main():
     ap.add_argument("--no-news", action="store_true", help="disable the news rule (for comparison)")
     ap.add_argument("--no-macro", action="store_true", help="disable the fundamental filter")
     ap.add_argument("--strategies", nargs="*", default=["trend_pullback", "session_sweep"])
+    ap.add_argument("--warmup-days", type=int, default=300,
+                    help="price history loaded before --start so indicators are ready on day 1")
+    ap.add_argument("--breakeven", choices=["on", "off"], help="move stop to entry at +1R")
+    ap.add_argument("--after-sl", choices=["half_2tp", "wait_2tp", "none"],
+                    help="what happens after a stop-loss (see config.py)")
+    ap.add_argument("--min-score", type=int, help="minimum setup score (default 8)")
+    ap.add_argument("--out", default="results")
     args = ap.parse_args()
     cfg = AgentConfig()
+    over = {}
+    if args.breakeven:
+        over["breakeven_at_r"] = 1.0 if args.breakeven == "on" else None
+    if args.after_sl:
+        over["after_stop_loss"] = args.after_sl
+    if args.min_score:
+        over["min_setup_score"] = args.min_score
+    cfg.risk = replace(cfg.risk, **over)
+    data_start = str((pd.Timestamp(args.start) - pd.Timedelta(days=args.warmup_days)).date())
 
     # 1. Economic calendar
     events = []
@@ -44,8 +61,10 @@ def main():
             calendar.download_history(CAL_PATH)
         events = calendar.load_history(CAL_PATH, impacts=cfg.risk.news_impacts)
         print(f"Loaded {len(events)} high-impact events")
-    news = None if args.no_news else NewsGuard(events, cfg.risk.news_close_before_min,
-                                               cfg.risk.news_block_after_min)
+    news = None if args.no_news else NewsGuard(calendar.scheduled_only(events),
+                                               cfg.risk.news_close_before_min,
+                                               cfg.risk.news_block_after_min,
+                                               cfg.risk.news_include_correlated)
     macro = None if args.no_macro else CalendarSurprise(events)
 
     # 2. Prices, features and signals
@@ -55,10 +74,10 @@ def main():
         try:
             if args.synthetic:
                 from agent.data import synthetic
-                df = synthetic.make(inst, args.start, args.end, seed=i)
+                df = synthetic.make(inst, data_start, args.end, seed=i)
             else:
                 from agent.data import loaders
-                df = loaders.load(inst, args.start, args.end)
+                df = loaders.load(inst, data_start, args.end)
         except Exception as e:  # noqa: BLE001 - keep going with other markets
             print(f"  ! {sym}: could not load data ({e})")
             continue
@@ -91,7 +110,7 @@ def main():
         for k, v in mc.items():
             print(f"  {k}: {v:.1%}" if isinstance(v, float) and k.endswith("prob") else f"  {k}: {v}")
 
-    out = Path("results")
+    out = Path(args.out)
     out.mkdir(exist_ok=True)
     trades.to_csv(out / "trades.csv", index=False)
     report.challenges_frame(res).to_csv(out / "challenges.csv", index=False)

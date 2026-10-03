@@ -5,7 +5,9 @@
   * Open no new related trade until 30 minutes AFTER the event.
 
 "Related" = the instrument lists the event's currency in news_currencies
-(events tagged "All" affect everything).
+(events tagged "All" affect everything). With include_correlated, markets
+that move with that currency count too (e.g. EUR news also closes GBP and
+CHF pairs; China news closes AUD and NZD pairs).
 """
 from bisect import bisect_left
 from collections import defaultdict
@@ -15,10 +17,17 @@ import pandas as pd
 from agent.instruments import Instrument
 from agent.news.calendar import Event
 
+# Currencies whose news moves the listed others almost as much as their own.
+CORRELATED = {
+    "EUR": ("GBP", "CHF"), "GBP": ("EUR",), "CHF": ("EUR",),
+    "AUD": ("NZD", "CNY"), "NZD": ("AUD", "CNY"),
+}
+
 
 class NewsGuard:
     def __init__(self, events: list[Event], close_before_min: int = 30,
-                 block_after_min: int = 30):
+                 block_after_min: int = 30, include_correlated: bool = True):
+        self.include_correlated = include_correlated
         self.before = pd.Timedelta(minutes=close_before_min)
         self.after = pd.Timedelta(minutes=block_after_min)
         by_ccy = defaultdict(list)
@@ -28,7 +37,10 @@ class NewsGuard:
         self._times = {c: [e.time for e in v] for c, v in self._events.items()}
 
     def _related(self, inst: Instrument):
-        return (*inst.news_currencies, "All")
+        ccys = list(inst.news_currencies)
+        if self.include_correlated:
+            ccys += [c for x in inst.news_currencies for c in CORRELATED.get(x, ())]
+        return (*dict.fromkeys(ccys), "All")
 
     def _between(self, ccy, lo, hi) -> list[Event]:
         times = self._times.get(ccy)

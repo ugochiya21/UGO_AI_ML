@@ -27,8 +27,8 @@ class ChallengeRules:
 class RiskConfig:
     # --- The owner's core rule -------------------------------------------
     # Combined risk of ALL open trades (distance to stop-loss) never above
-    # 1% of the account. A trade whose stop is at breakeven risks nothing,
-    # which frees budget for the next good setup.
+    # 1% of the account. New trades only after a TP (see
+    # breakeven_frees_budget and after_stop_loss below).
     max_open_risk_pct: float = 0.01
 
     # Risk per single trade (fraction of starting balance).
@@ -37,7 +37,19 @@ class RiskConfig:
     reduced_risk_per_trade_pct: float = 0.0025
 
     # Move stop to breakeven once price has moved this many R in our favour.
-    breakeven_at_r: float = 1.0
+    # None = never move the stop (the owner is still deciding; see backtests).
+    breakeven_at_r: float | None = 1.0
+    # Owner's rule: a new trade only after a trade hits TP. A trade sitting
+    # at breakeven still holds its slot until it closes. Set True to let a
+    # breakeven trade free its budget early (the original design).
+    breakeven_frees_budget: bool = False
+    # Owner's rule after a stop-loss:
+    #   "wait_2tp" - no new trade until two open trades have hit TP (exactly
+    #                as stated; can never resume if <2 trades are left open)
+    #   "half_2tp" - keep trading at reduced size until two TPs come in
+    #   "none"     - no special treatment
+    after_stop_loss: str = "half_2tp"
+    tps_to_recover: int = 2
     # Minimum reward:risk for a trade to be considered.
     min_reward_risk: float = 2.0
     # Only setups scoring at least this (out of 10) are traded.
@@ -56,6 +68,9 @@ class RiskConfig:
     news_close_before_min: int = 30   # flatten related trades 30 min before
     news_block_after_min: int = 30    # no new related trades until 30 min after
     news_impacts: tuple = ("High",)
+    # Also flatten/block markets CORRELATED with the news currency, not
+    # just the ones that contain it (owner's rule).
+    news_include_correlated: bool = True
 
     # --- Weekend -----------------------------------------------------------
     # Flatten non-crypto positions after this hour (UTC) on Friday.

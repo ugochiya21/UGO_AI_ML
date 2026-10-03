@@ -3,8 +3,10 @@ for many reasons and only ever says yes with a size attached.
 
 Owner's rules implemented here:
   * Total risk of all open trades <= 1% of the account, however many trades.
-  * New trades only use budget that is actually free (e.g. after a trade hit
-    target or its stop moved to breakeven) and only for top-quality setups.
+  * New trades only use budget that is actually free - a trade's slot frees
+    when it closes (TP), not when its stop reaches breakeven - and only for
+    top-quality setups.
+  * After a stop-loss: wait for (or trade small until) two TPs.
 """
 from dataclasses import dataclass
 
@@ -30,7 +32,9 @@ class RiskManager:
 
     # ---- budget -----------------------------------------------------------
     def open_risk(self, positions: list[Position]) -> float:
-        return sum(p.risk_usd() for p in positions)
+        if self.cfg.risk.breakeven_frees_budget:
+            return sum(p.risk_usd() for p in positions)
+        return sum(p.initial_risk_usd() for p in positions)
 
     def risk_budget(self) -> float:
         return self.cfg.risk.max_open_risk_pct * self.start
@@ -38,12 +42,14 @@ class RiskManager:
     def free_budget(self, positions) -> float:
         return max(0.0, self.risk_budget() - self.open_risk(positions))
 
-    def per_trade_risk(self, balance: float, equity: float, consecutive_losses: int) -> float:
+    def per_trade_risk(self, balance: float, equity: float, consecutive_losses: int,
+                       recovering: bool = False) -> float:
         r = self.cfg.risk
         pct = r.risk_per_trade_pct
         if (equity < self.start * r.reduce_risk_below          # in drawdown
                 or balance >= self.start * r.protect_target_above  # protect a near-pass
-                or consecutive_losses >= 2):                    # cool off after losses
+                or consecutive_losses >= 2                      # cool off after losses
+                or recovering):                                 # stop-loss, awaiting 2 TPs
             pct = r.reduced_risk_per_trade_pct
         # Never risk more than the distance left to the target needs - but
         # not less than the smallest trade we take, or a balance a few cents
@@ -58,9 +64,13 @@ class RiskManager:
     # ---- the gate -----------------------------------------------------------
     def approve(self, sig: Signal, inst: Instrument, positions: list[Position], *,
                 balance: float, equity: float, day_open_equity: float,
-                now: pd.Timestamp, consecutive_losses: int = 0) -> Decision:
+                now: pd.Timestamp, consecutive_losses: int = 0,
+                tps_owed: int = 0) -> Decision:
+        """`tps_owed`: TPs still needed since the last stop-loss."""
         r = self.cfg.risk
         no = lambda why: Decision(False, why)  # noqa: E731
+        if tps_owed and r.after_stop_loss == "wait_2tp":
+            return no("after a stop-loss: waiting for two TPs")
 
         if sig.score < r.min_setup_score:
             return no(f"score {sig.score} < {r.min_setup_score}")
@@ -88,7 +98,8 @@ class RiskManager:
                 and inst.asset_class != CRYPTO):
             return no("too close to the Friday close")
 
-        risk_usd = self.per_trade_risk(balance, equity, consecutive_losses)
+        risk_usd = self.per_trade_risk(balance, equity, consecutive_losses,
+                                       recovering=bool(tps_owed) and r.after_stop_loss == "half_2tp")
         if now.weekday() >= 5 and inst.asset_class == CRYPTO:
             risk_usd *= r.crypto_weekend_risk_factor
         risk_usd = min(risk_usd, self.free_budget(positions))

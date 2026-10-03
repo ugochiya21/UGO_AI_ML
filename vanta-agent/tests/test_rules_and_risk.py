@@ -79,12 +79,42 @@ def test_total_open_risk_never_above_one_percent(rm):
     assert not d.approved and "1% rule" in d.reason
 
 
-def test_breakeven_trade_frees_budget(rm):
-    p1 = pos("SP500USDC", 1, 5000, 5000, notional=5000)   # stop at entry -> risk 0
+def _two_trades_one_at_breakeven():
+    p1 = pos("SP500USDC", 1, 5000, 4950, notional=2500)   # $25 at risk when opened
+    p1.stop = 5000                                         # ...now at breakeven
     p2 = pos("BTCUSDC", 1, 50000, 49500, notional=2500)
+    return p1, p2
+
+
+def test_breakeven_trade_keeps_its_slot_until_tp(rm):
+    # Owner's rule: only a TP (a closed trade) frees room for a new trade.
+    p1, p2 = _two_trades_one_at_breakeven()
+    assert rm.open_risk([p1, p2]) == pytest.approx(50)
+    assert not approve(rm, sig(), [p1, p2]).approved
+
+
+def test_breakeven_frees_budget_when_enabled():
+    cfg = AgentConfig()
+    object.__setattr__(cfg.risk, "breakeven_frees_budget", True)
+    rm = RiskManager(cfg)
+    p1, p2 = _two_trades_one_at_breakeven()
     assert rm.open_risk([p1, p2]) == pytest.approx(25)
     d = approve(rm, sig(), [p1, p2])
     assert d.approved and d.risk_usd <= 25 + 1e-9
+
+
+def test_after_stop_loss_half_size_until_two_tps(rm):
+    d = rm.approve(sig(), get("EURUSD"), [], balance=5000, equity=5000,
+                   day_open_equity=5000, now=T, tps_owed=2)
+    assert d.approved and d.risk_usd == pytest.approx(12.5)
+
+
+def test_after_stop_loss_wait_for_two_tps():
+    cfg = AgentConfig()
+    object.__setattr__(cfg.risk, "after_stop_loss", "wait_2tp")
+    d = RiskManager(cfg).approve(sig(), get("EURUSD"), [], balance=5000, equity=5000,
+                                 day_open_equity=5000, now=T, tps_owed=1)
+    assert not d.approved and "two TPs" in d.reason
 
 
 def test_rejects_low_score_and_poor_reward(rm):

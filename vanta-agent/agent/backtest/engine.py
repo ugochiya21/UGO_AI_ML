@@ -87,6 +87,7 @@ class Backtester:
         monitor = ChallengeMonitor(cfg.rules)
         ch_start, ch_trades, ch_no = None, 0, 1
         consecutive_losses = 0
+        tps_owed = 0   # TPs still needed since the last stop-loss
         eq_curve = []
 
         def value(p: Position, price: float) -> float:
@@ -94,7 +95,7 @@ class Backtester:
             return p.pnl(price) - p.fees - p.carry
 
         def close(p: Position, price: float, t, reason: str):
-            nonlocal balance, ch_trades, consecutive_losses
+            nonlocal balance, ch_trades, consecutive_losses, tps_owed
             p.fees += p.notional * get(p.symbol).fee_rate   # exit fee
             net = value(p, price)
             balance += net
@@ -105,6 +106,10 @@ class Backtester:
             positions.remove(p)
             ch_trades += 1
             consecutive_losses = consecutive_losses + 1 if net < 0 else 0
+            if reason == "stop" and cfg.risk.after_stop_loss != "none":
+                tps_owed = cfg.risk.tps_to_recover
+            elif reason == "target":
+                tps_owed = max(0, tps_owed - 1)
 
         def reject(why):
             key = re.sub(r"open \w+ via \w+", "open trade", re.sub(r"[-\d.]+", "#", why))
@@ -153,7 +158,7 @@ class Backtester:
                     worst_eq_adj += p.pnl(adverse) - p.pnl(c)
                     # Breakeven once +1R reached (takes effect from next bar).
                     best = h if p.direction == 1 else l
-                    if (p.stop != p.entry and
+                    if (cfg.risk.breakeven_at_r is not None and p.stop != p.entry and
                             p.r_multiple(best) >= cfg.risk.breakeven_at_r):
                         p.stop = p.entry
                 last_close[sym] = c
@@ -163,7 +168,7 @@ class Backtester:
 
             if status == ACTIVE:
                 self._enter(t, sigs, positions, last_close, balance, equity, monitor,
-                            consecutive_losses, reject)
+                            consecutive_losses, reject, tps_owed)
                 # Entry fees are paid immediately.
             eq_curve.append((t, balance + sum(value(p, last_close[p.symbol]) for p in positions)))
 
@@ -177,6 +182,7 @@ class Backtester:
                     break
                 balance, monitor = start_bal, ChallengeMonitor(cfg.rules)
                 ch_start, ch_trades, ch_no, consecutive_losses = None, 0, ch_no + 1, 0
+                tps_owed = 0
 
         if monitor.status == ACTIVE and ch_start is not None:
             res.challenges.append(ChallengeResult(
@@ -188,7 +194,7 @@ class Backtester:
 
     # ------------------------------------------------------------------
     def _enter(self, t, sigs, positions, last_close, balance, equity, monitor,
-               consecutive_losses, reject):
+               consecutive_losses, reject, tps_owed=0):
         # Best setups first.
         candidates = sorted(sigs.get(t, ()), key=lambda x: -x[1].score)
         decision_time = t + BAR   # signal is known at the bar's close
@@ -210,7 +216,8 @@ class Backtester:
                     continue
             dec = self.risk.approve(sig, inst, positions, balance=balance, equity=equity,
                                     day_open_equity=monitor.day_open_equity,
-                                    now=decision_time, consecutive_losses=consecutive_losses)
+                                    now=decision_time, consecutive_losses=consecutive_losses,
+                                    tps_owed=tps_owed)
             if not dec.approved:
                 reject(dec.reason)
                 continue

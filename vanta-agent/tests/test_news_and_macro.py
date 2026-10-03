@@ -26,6 +26,27 @@ def test_no_entries_until_30_minutes_after():
     assert g.blocks_entry(eur, CPI - pd.Timedelta("20min"))
 
 
+def test_correlated_markets_flatten_too():
+    t = pd.Timestamp("2024-03-07 13:15", tz="UTC")
+    ecb = [Event(t, "EUR", "High", "Main Refinancing Rate")]
+    china = [Event(t, "CNY", "High", "GDP q/y")]
+    soon = t - pd.Timedelta("10min")
+    assert NewsGuard(ecb).must_flatten(get("GBPUSD"), soon)            # GBP moves with EUR
+    assert not NewsGuard(ecb, include_correlated=False).must_flatten(get("GBPUSD"), soon)
+    assert NewsGuard(china).must_flatten(get("AUDUSD"), soon)
+    assert not NewsGuard(ecb).must_flatten(get("USDJPY"), soon)
+
+
+def test_surprise_events_are_not_known_in_advance():
+    from agent.news.calendar import scheduled_only
+    ev = [Event(pd.Timestamp("2020-03-15 21:00", tz="UTC"), "USD", "High", "Federal Funds Rate"),
+          Event(pd.Timestamp("2020-03-17 15:40", tz="UTC"), "USD", "High", "President Speaks"),
+          Event(pd.Timestamp("2024-03-10 21:45", tz="UTC"), "NZD", "High", "GDP q/q"),
+          EV[0]]
+    kept = [e.title for e in scheduled_only(ev)]
+    assert kept == ["GDP q/q", "CPI m/m"]
+
+
 def test_load_forexfactory_csv(tmp_path):
     p = tmp_path / "ff.csv"
     p.write_text("date,time,currency,impact,event,actual,forecast,previous\n"

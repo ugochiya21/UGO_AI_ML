@@ -52,6 +52,24 @@ def load_history(path: str | Path, impacts=("High",), start=None, end=None) -> l
             for r in df.itertuples()]
 
 
+def scheduled_only(events: list[Event]) -> list[Event]:
+    """Drop events nobody could have known about in advance. The archive also
+    records surprises (e.g. the Fed's emergency cut on Sunday 15 Mar 2020,
+    unannounced speeches at 21:17); a backtest that closes trades 30 minutes
+    before those is cheating. Kept: weekday events on a quarter hour, plus
+    Sunday-evening Asia-Pacific releases (Monday morning local time)."""
+    def known(e: Event) -> bool:
+        wd = e.time.weekday()
+        if e.time.minute % 15:
+            return False
+        if wd == 5:
+            return False
+        if wd == 6:
+            return e.currency in ("AUD", "NZD", "JPY", "CNY") and e.time.hour >= 20
+        return True
+    return [e for e in events if known(e)]
+
+
 def fetch_this_week(impacts=("High",)) -> list[Event]:
     r = requests.get(FF_WEEK_URL, timeout=30)
     r.raise_for_status()
