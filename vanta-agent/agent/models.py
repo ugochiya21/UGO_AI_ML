@@ -40,6 +40,9 @@ class Position:
     # risk when this trade was opened.
     opened_with: int = 1
     budget_used: float = 0.0
+    # Intraday strategies: close at this time (end of session) if neither
+    # the stop nor the TP has been hit.
+    exit_at: object = None
 
     def __post_init__(self):
         if not self.initial_stop:

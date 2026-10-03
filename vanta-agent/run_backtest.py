@@ -22,7 +22,7 @@ from agent.news import calendar
 from agent.news.guard import NewsGuard
 from agent.strategies import features, session_sweep, trend_pullback
 from agent.strategies import intraday as intraday_strats
-from agent.strategies import mtf, playbook
+from agent.strategies import mtf, playbook, research
 
 CAL_PATH = Path("data/forexfactory_calendar.csv")
 
@@ -45,7 +45,7 @@ def main():
                          "15m: earlier intraday; 1h: earlier swing")
     ap.add_argument("--strategies", nargs="*",
                     help="1h: trend_pullback session_sweep; 15m: intraday_pullback orb; "
-                         "5m: mtf_pullback orb5 playbook")
+                         "5m: mtf_pullback orb5 playbook late_momentum nr7_orb")
     ap.add_argument("--min-hours-before-news", type=float,
                     help="skip entries when related high-impact news is due sooner")
     ap.add_argument("--warmup-days", type=int, default=300,
@@ -120,6 +120,9 @@ def main():
             min_stop = spread_cost(df, inst) / 0.08
             parts = [mtf.STRATEGIES[s](f, inst, min_stop_frac=min_stop)
                      for s in args.strategies if s in mtf.STRATEGIES]
+            parts += [research.STRATEGIES[s](df, inst, min_stop_frac=min_stop)
+                      for s in args.strategies if s in research.STRATEGIES]
+            parts = [p for p in parts if len(p)]
             if "playbook" in args.strategies:
                 parts.append(playbook.generate(playbook.features(df, inst), inst,
                                                min_stop_frac=min_stop))

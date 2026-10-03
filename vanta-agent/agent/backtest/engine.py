@@ -146,6 +146,10 @@ class Backtester:
                 for p in [p for p in positions if p.symbol == sym]:
                     # Carry for the hour held.
                     p.carry += p.notional * inst.daily_carry * (self.bar / pd.Timedelta("1D"))
+                    # Intraday: end of the session.
+                    if p.exit_at is not None and t >= p.exit_at:
+                        close(p, o, t, "session_end")
+                        continue
                     # Weekend rule.
                     if (inst.asset_class != CRYPTO and t.weekday() == 4
                             and t.hour >= cfg.risk.friday_flat_hour_utc):
@@ -248,6 +252,11 @@ class Backtester:
             p = Position(sym, sig.direction, entry, sig.stop, sig.take_profit, dec.notional,
                          decision_time, sig.strategy, sig.score)
             p.fees = dec.notional * (inst.fee_rate + self.costs.get(sym, 0.0))
+            exit_at = getattr(row, "exit_at", None)
+            if exit_at is not None and not pd.isna(exit_at):
+                p.exit_at = pd.Timestamp(exit_at)
+                if p.exit_at.tzinfo is None:
+                    p.exit_at = p.exit_at.tz_localize("UTC")
             positions.append(p)
             p.opened_with = len(positions)
             p.budget_used = self.risk.open_risk(positions)
