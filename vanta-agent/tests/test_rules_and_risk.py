@@ -41,6 +41,16 @@ def test_pass_needs_realized_balance():
     assert m.check(T, 5600, 5500) == PASSED
 
 
+def test_inactivity_fails_after_60_days_without_an_order():
+    m = ChallengeMonitor(AgentConfig().rules)
+    m.new_day_if_needed(T, 5000)
+    assert m.check(T, 5000, 5000) == "active"
+    m.order_placed(T + pd.Timedelta(days=30))
+    assert m.check(T + pd.Timedelta(days=89), 4790, 4790) == "active"
+    assert m.check(T + pd.Timedelta(days=90), 4790, 4790) == FAILED
+    assert "inactivity" in m.reason
+
+
 # ------------------------------------------------------------ risk engine
 @pytest.fixture
 def rm():
@@ -101,6 +111,14 @@ def test_safety_lines(rm):
 def test_protects_near_target(rm):
     d = approve(rm, sig(), balance=5420, equity=5420, day_open=5420)
     assert d.risk_usd == pytest.approx(12.5)
+
+
+def test_can_still_trade_cents_from_target(rm):
+    # 16 cents short used to size every trade below the minimum - no trades
+    # ever again, then Vanta's 60-day inactivity rule fails the account.
+    d = approve(rm, sig(), balance=5499.84, equity=5499.84, day_open=5499.84)
+    assert d.approved
+    assert d.risk_usd == pytest.approx(rm.min_trade_risk())
 
 
 def test_weekend_rules(rm):

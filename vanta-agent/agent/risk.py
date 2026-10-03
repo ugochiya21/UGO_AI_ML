@@ -45,9 +45,15 @@ class RiskManager:
                 or balance >= self.start * r.protect_target_above  # protect a near-pass
                 or consecutive_losses >= 2):                    # cool off after losses
             pct = r.reduced_risk_per_trade_pct
-        # Never risk more than the distance left to the target needs.
+        # Never risk more than the distance left to the target needs - but
+        # not less than the smallest trade we take, or a balance a few cents
+        # short of the target can never trade again (and Vanta eliminates
+        # accounts with no order for 60 days).
         to_target = self.start * (1 + self.cfg.rules.profit_target_pct) - balance
-        return min(pct * self.start, max(to_target, 0) + 1.0)
+        return min(pct * self.start, max(to_target + 1.0, self.min_trade_risk()))
+
+    def min_trade_risk(self) -> float:
+        return 0.25 * self.cfg.risk.reduced_risk_per_trade_pct * self.start
 
     # ---- the gate -----------------------------------------------------------
     def approve(self, sig: Signal, inst: Instrument, positions: list[Position], *,
@@ -86,7 +92,7 @@ class RiskManager:
         if now.weekday() >= 5 and inst.asset_class == CRYPTO:
             risk_usd *= r.crypto_weekend_risk_factor
         risk_usd = min(risk_usd, self.free_budget(positions))
-        if risk_usd < 0.25 * r.reduced_risk_per_trade_pct * self.start:
+        if risk_usd < self.min_trade_risk():
             return no("no free risk budget (1% rule)")
 
         stop_frac = abs(sig.entry - sig.stop) / sig.entry

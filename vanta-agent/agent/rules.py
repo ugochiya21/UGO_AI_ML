@@ -23,6 +23,12 @@ class ChallengeMonitor:
         self.ended_at = None
         self.worst_static_dd = 0.0
         self.worst_intraday_dd = 0.0
+        # Vanta eliminates accounts that place no order for 60 days. The
+        # clock starts with the challenge.
+        self.last_order = None
+
+    def order_placed(self, t: pd.Timestamp):
+        self.last_order = t
 
     @property
     def fail_equity(self) -> float:
@@ -46,6 +52,9 @@ class ChallengeMonitor:
         (open P&L included). `balance` is realized balance."""
         if self.status != ACTIVE:
             return self.status
+        if self.last_order is None:
+            self.last_order = t
+        idle = t - self.last_order
         self.worst_static_dd = max(self.worst_static_dd, 1 - equity / self.start)
         self.worst_intraday_dd = max(self.worst_intraday_dd, 1 - equity / self.day_open_equity)
         if equity < self.fail_equity:
@@ -55,6 +64,8 @@ class ChallengeMonitor:
                                                 f"{self.intraday_floor():.2f} (day open {self.day_open_equity:.2f})")
         elif balance >= self.target_balance:
             self.status, self.reason = PASSED, f"target reached: balance {balance:.2f}"
+        elif idle >= pd.Timedelta(days=self.rules.inactivity_days):
+            self.status, self.reason = FAILED, f"inactivity: no order for {idle.days} days"
         if self.status != ACTIVE:
             self.ended_at = t
         return self.status

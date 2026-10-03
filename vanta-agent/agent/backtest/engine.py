@@ -218,3 +218,4 @@ class Backtester:
                          decision_time, sig.strategy, sig.score)
             p.fees = dec.notional * inst.fee_rate
             positions.append(p)
+            monitor.order_placed(decision_time)
