@@ -127,10 +127,11 @@ def bitstamp_ohlc(symbol: str, start: str, end: str, step: int = 3600) -> pd.Dat
             # Pair not listed yet at t0 (e.g. SOL before 2022): skip ahead.
             t0 += 1000 * step
             continue
-        rows += [(int(b["timestamp"]), *(float(b[c]) for c in COLS)) for b in batch]
+        rows += [(int(b["timestamp"]), *(float(b[c]) for c in COLS), float(b["volume"]))
+                 for b in batch]
         t0 = int(batch[-1]["timestamp"]) + step
         _time.sleep(0.3)
-    df = pd.DataFrame(rows, columns=["time", *COLS])
+    df = pd.DataFrame(rows, columns=["time", *COLS, "volume"])
     df.index = pd.to_datetime(df.pop("time"), unit="s", utc=True)
     df = df[df.index <= pd.Timestamp(end, tz="UTC")]
     return df[~df.index.duplicated()].sort_index()

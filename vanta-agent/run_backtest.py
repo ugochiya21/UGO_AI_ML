@@ -22,7 +22,7 @@ from agent.news import calendar
 from agent.news.guard import NewsGuard
 from agent.strategies import features, session_sweep, trend_pullback
 from agent.strategies import intraday as intraday_strats
-from agent.strategies import mtf
+from agent.strategies import mtf, playbook
 
 CAL_PATH = Path("data/forexfactory_calendar.csv")
 
@@ -44,7 +44,8 @@ def main():
                     help="5m: owner's intraday 1h/15m/5m strategies (default); "
                          "15m: earlier intraday; 1h: earlier swing")
     ap.add_argument("--strategies", nargs="*",
-                    help="1h: trend_pullback session_sweep; 15m: intraday_pullback orb")
+                    help="1h: trend_pullback session_sweep; 15m: intraday_pullback orb; "
+                         "5m: mtf_pullback orb5 playbook")
     ap.add_argument("--min-hours-before-news", type=float,
                     help="skip entries when related high-impact news is due sooner")
     ap.add_argument("--warmup-days", type=int, default=300,
@@ -117,7 +118,11 @@ def main():
             f = mtf.features(df, inst)
             # Stop never so tight that Vanta's spread + slippage exceed 8% of the risk.
             min_stop = spread_cost(df, inst) / 0.08
-            parts = [mtf.STRATEGIES[s](f, inst, min_stop_frac=min_stop) for s in args.strategies]
+            parts = [mtf.STRATEGIES[s](f, inst, min_stop_frac=min_stop)
+                     for s in args.strategies if s in mtf.STRATEGIES]
+            if "playbook" in args.strategies:
+                parts.append(playbook.generate(playbook.features(df, inst), inst,
+                                               min_stop_frac=min_stop))
         elif args.tf == "15m":
             f = intraday_strats.features(df, inst)
             parts = [intraday_strats.STRATEGIES[s](f, inst, events) for s in args.strategies]
