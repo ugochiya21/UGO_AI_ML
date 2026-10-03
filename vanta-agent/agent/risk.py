@@ -13,7 +13,7 @@ from dataclasses import dataclass
 import pandas as pd
 
 from agent.config import AgentConfig
-from agent.instruments import CRYPTO, Instrument, get
+from agent.instruments import CLASS_LIMIT, CRYPTO, PORTFOLIO_LIMIT, Instrument, get
 from agent.models import Position, Signal
 
 
@@ -76,7 +76,7 @@ class RiskManager:
 
         if sig.score < r.min_setup_score:
             return no(f"score {sig.score} < {r.min_setup_score}")
-        if sig.reward_risk < r.min_reward_risk:
+        if sig.reward_risk < r.min_reward_risk - 1e-6:   # tolerance: 2.0 can compute as 1.99999
             return no(f"reward:risk {sig.reward_risk:.2f} < {r.min_reward_risk}")
         if sig.direction * (sig.entry - sig.stop) <= 0:
             return no("stop on wrong side of entry")
@@ -110,8 +110,18 @@ class RiskManager:
 
         stop_frac = abs(sig.entry - sig.stop) / sig.entry
         notional = risk_usd / stop_frac
-        cap = inst.max_leverage * self.start
-        if notional > cap:  # Vanta would clamp anyway; risk ends up smaller
-            notional = cap
+        # Vanta's buying power: per pair, per asset class and whole portfolio
+        # (gross, longs and shorts add up). A trade that doesn't fit is made
+        # smaller - so it risks less, never more.
+        gross = sum(p.notional for p in positions)
+        in_class = sum(p.notional for p in positions
+                       if get(p.symbol).asset_class == inst.asset_class)
+        cap = min(inst.max_leverage * equity,
+                  CLASS_LIMIT[inst.asset_class] * equity - in_class,
+                  PORTFOLIO_LIMIT * equity - gross)
+        if notional > cap:
+            notional = max(cap, 0.0)
             risk_usd = notional * stop_frac
+            if risk_usd < self.min_trade_risk():
+                return no("buying power limit")
         return Decision(True, "ok", notional, risk_usd)

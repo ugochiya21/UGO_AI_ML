@@ -60,13 +60,15 @@ def load(inst: Instrument, start: str, end: str, refresh: bool = False) -> pd.Da
     return df.loc[pd.Timestamp(start, tz="UTC"):pd.Timestamp(end, tz="UTC")]
 
 
-def histdata_year(symbol: str, year: int) -> bytes:
-    """One year of 1-minute bars as the zip HistData serves. Kept under
-    data/raw/histdata/ so it is only ever downloaded once."""
-    kept = RAW / f"{symbol}_{year}.zip"
+def histdata_year(symbol: str, year: int, month: int | None = None) -> bytes:
+    """One year (or, for the current year, one month) of 1-minute bars as
+    the zip HistData serves. Kept under data/raw/histdata/ so it is only
+    downloaded once - except the current month, which isn't final yet."""
+    tag = f"{year}" if month is None else f"{year}{month:02d}"
+    kept = RAW / f"{symbol}_{tag}.zip"
     if kept.exists():
         return kept.read_bytes()
-    page_url = PAGE.format(s=symbol.lower(), y=year)
+    page_url = PAGE.format(s=symbol.lower(), y=year) + ("" if month is None else f"/{month}")
     page = _get(page_url)
     if page is None:
         return b""
@@ -76,17 +78,26 @@ def histdata_year(symbol: str, year: int) -> bytes:
     _time.sleep(2)
     if r.status_code != 200 or not r.content.startswith(b"PK"):
         return b""
-    RAW.mkdir(parents=True, exist_ok=True)
-    kept.write_bytes(r.content)
+    now = pd.Timestamp.now(tz="UTC")
+    if (year, month or 12) < (now.year, now.month):
+        RAW.mkdir(parents=True, exist_ok=True)
+        kept.write_bytes(r.content)
     return r.content
 
 
 def histdata_15m(symbol: str, start: str, end: str) -> pd.DataFrame:
     parts, missing = [], []
+    now = pd.Timestamp.now(tz="UTC")
+    chunks = []
     for year in range(pd.Timestamp(start).year, pd.Timestamp(end).year + 1):
-        content = histdata_year(symbol, year)
+        if year < now.year:
+            chunks.append((year, None))
+        else:   # the current year only exists as monthly files
+            chunks += [(year, m) for m in range(1, now.month + 1)]
+    for year, month in chunks:
+        content = histdata_year(symbol, year, month)
         if not content:
-            missing.append(year)
+            missing.append(year if month is None else f"{year}-{month:02d}")
             continue
         with zipfile.ZipFile(io.BytesIO(content)) as z:
             name = next(n for n in z.namelist() if n.endswith(".csv"))

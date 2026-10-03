@@ -172,3 +172,17 @@ def test_after_stop_loss_wait_for_a_tp_while_trades_are_open(rm):
     d = rm.approve(sig(), get("EURUSD"), [], balance=4950, equity=4950,
                    day_open_equity=4950, now=T, tps_owed=1)
     assert d.approved
+
+
+def test_vanta_buying_power_limits(rm):
+    # Forex class limit is 10x equity ($50,000). With $40,000 of GBPJPY open,
+    # a EURUSD trade that wants ~$55,000 only gets the $10,000 left - it is
+    # made smaller (risks less), never bigger.
+    gj = Position("GBPJPY", 1, 180.0, 179.95, 180.1, 40_000, T, "test")
+    eu = sig(entry=1.10, stop=1.0995, tp=1.101)
+    d = approve(rm, eu, [gj])
+    assert d.approved and d.notional == pytest.approx(10_000)
+    assert d.risk_usd < 25
+    # Room too small to be worth a trade -> refused.
+    gj.notional = 48_000
+    assert approve(rm, eu, [gj]).reason == "buying power limit"

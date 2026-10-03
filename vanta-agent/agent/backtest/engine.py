@@ -57,9 +57,11 @@ class BacktestResult:
 class Backtester:
     def __init__(self, cfg: AgentConfig, bars: dict[str, pd.DataFrame],
                  signals: dict[str, pd.DataFrame], news: NewsGuard | None = None,
-                 macro=None, bar: pd.Timedelta = BAR):
+                 macro=None, bar: pd.Timedelta = BAR, costs: dict | None = None):
         self.cfg = cfg
         self.bar = bar   # bar length: 1h by default, 15min for intraday
+        # Spread paid per round trip, as a fraction of price, per symbol.
+        self.costs = costs or {}
         self.bars = bars
         self.signals = signals
         self.news = news
@@ -234,6 +236,6 @@ class Backtester:
                 continue
             p = Position(sym, sig.direction, entry, sig.stop, sig.take_profit, dec.notional,
                          decision_time, sig.strategy, sig.score)
-            p.fees = dec.notional * inst.fee_rate
+            p.fees = dec.notional * (inst.fee_rate + self.costs.get(sym, 0.0))
             positions.append(p)
             monitor.order_placed(decision_time)

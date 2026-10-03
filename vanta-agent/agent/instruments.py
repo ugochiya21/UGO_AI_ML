@@ -1,8 +1,10 @@
 """The tradable universe, with Vanta symbols and everything the risk engine
 needs to know about each instrument.
 
-Symbol ids, leverage caps and fees come from taoshidev/vanta-network
-(vali_objects/trade_pair.py). Check `GET /trade-pairs` on your account
+Symbol ids and fees come from taoshidev/vanta-network
+(vali_objects/trade_pair.py). Leverage caps are Vanta's published Base
+buying power for Classic accounts (vantatrading.io/rules, Oct 2026):
+per pair, per asset class, and for the whole portfolio. Check `GET /trade-pairs` on your account
 before going live: Vanta enables and disables pairs over time.
 """
 from dataclasses import dataclass, field
@@ -13,7 +15,13 @@ COMMODITIES = "commodities"
 INDICES = "indices"
 EQUITIES = "equities"
 
-# Vanta transaction (spread) fee as a fraction of order value, per side.
+# Buying power (gross notional / equity), Base level. Longs and shorts add up.
+CLASS_LIMIT = {CRYPTO: 1.5, FOREX: 10.0, COMMODITIES: 1.5, INDICES: 3.0, EQUITIES: 1.0}
+PORTFOLIO_LIMIT = 15.0
+# Forex pairs with an NZD leg are capped lower than the other 22 pairs.
+NZD_CROSSES = {"AUDNZD", "EURNZD", "GBPNZD", "NZDCAD", "NZDCHF", "NZDJPY"}
+
+# Vanta transaction fee as a fraction of order value, per side.
 FEE_RATE = {CRYPTO: 0.0003, EQUITIES: 0.0001, COMMODITIES: 0.00005, FOREX: 0.0, INDICES: 0.0}
 
 # Carry fee charged per day on notional (approximation of Vanta's rates;
@@ -50,8 +58,8 @@ class Instrument:
 
 
 def _fx(sym, base, quote, duka=None):
-    return Instrument(sym, FOREX, (base, quote), {base: 1, quote: -1}, 2.5,
-                      "dukascopy", duka or sym)
+    return Instrument(sym, FOREX, (base, quote), {base: 1, quote: -1},
+                      5.0 if sym in NZD_CROSSES else 10.0, "dukascopy", duka or sym)
 
 
 UNIVERSE = {i.symbol: i for i in [
@@ -68,16 +76,16 @@ UNIVERSE = {i.symbol: i for i in [
         ("EUR", "CHF"), ("EUR", "GBP"), ("EUR", "NZD"), ("GBP", "AUD"), ("GBP", "CAD"),
         ("GBP", "CHF"), ("GBP", "NZD"), ("NZD", "CAD"), ("NZD", "CHF"), ("NZD", "JPY")]],
     # Commodities (Hyperliquid perps on Vanta)
-    Instrument("GOLDUSDC", COMMODITIES, ("USD",), {"GOLD": 1, "USD": -1}, 1.0, "dukascopy", "XAUUSD"),
-    Instrument("SILVERUSDC", COMMODITIES, ("USD",), {"GOLD": 1, "USD": -1}, 0.5, "dukascopy", "XAGUSD"),
-    Instrument("WTIOILUSDC", COMMODITIES, ("USD", "CAD"), {"OIL": 1}, 0.5, "dukascopy", "LIGHTCMDUSD"),
+    Instrument("GOLDUSDC", COMMODITIES, ("USD",), {"GOLD": 1, "USD": -1}, 1.5, "dukascopy", "XAUUSD"),
+    Instrument("SILVERUSDC", COMMODITIES, ("USD",), {"GOLD": 1, "USD": -1}, 1.5, "dukascopy", "XAGUSD"),
+    Instrument("WTIOILUSDC", COMMODITIES, ("USD", "CAD"), {"OIL": 1}, 1.5, "dukascopy", "LIGHTCMDUSD"),
     # Indices (Hyperliquid perps; the old SPX/NDX/DJI pairs are disabled)
-    Instrument("SP500USDC", INDICES, ("USD",), {"US_EQUITY": 1}, 1.5, "dukascopy", "USA500IDXUSD"),
-    Instrument("XYZ100USDC", INDICES, ("USD",), {"US_EQUITY": 1}, 1.5, "dukascopy", "USATECHIDXUSD"),
+    Instrument("SP500USDC", INDICES, ("USD",), {"US_EQUITY": 1}, 2.5, "dukascopy", "USA500IDXUSD"),
+    Instrument("XYZ100USDC", INDICES, ("USD",), {"US_EQUITY": 1}, 2.5, "dukascopy", "USATECHIDXUSD"),
     # Crypto
-    Instrument("BTCUSDC", CRYPTO, ("USD",), {"CRYPTO": 1}, 0.5, "binance", "BTCUSDT", True),
-    Instrument("ETHUSDC", CRYPTO, ("USD",), {"CRYPTO": 1}, 0.5, "binance", "ETHUSDT", True),
-    Instrument("SOLUSDC", CRYPTO, ("USD",), {"CRYPTO": 1}, 0.5, "binance", "SOLUSDT", True),
+    Instrument("BTCUSDC", CRYPTO, ("USD",), {"CRYPTO": 1}, 1.5, "binance", "BTCUSDT", True),
+    Instrument("ETHUSDC", CRYPTO, ("USD",), {"CRYPTO": 1}, 1.5, "binance", "ETHUSDT", True),
+    Instrument("SOLUSDC", CRYPTO, ("USD",), {"CRYPTO": 1}, 1.5, "binance", "SOLUSDT", True),
     # A few of the most liquid US stocks
     *[Instrument(t, EQUITIES, ("USD",), {"US_EQUITY": 1, f"STOCK_{t}": 1}, 0.5,
                  "yahoo", t, False, (14, 21))

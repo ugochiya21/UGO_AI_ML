@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from agent import instruments
+from agent import costs, instruments
 from agent.backtest import montecarlo, report
 from agent.backtest.engine import Backtester
 from agent.config import AgentConfig
@@ -24,6 +24,11 @@ from agent.strategies import features, session_sweep, trend_pullback
 from agent.strategies import intraday as intraday_strats
 
 CAL_PATH = Path("data/forexfactory_calendar.csv")
+
+def spread_cost(df: pd.DataFrame, inst) -> float:
+    """Vanta spread + slippage per round trip (see agent/costs.py)."""
+    measured = float((df["spread"] / df["close"]).median()) if "spread" in df else None
+    return costs.round_trip(inst, measured)
 
 
 def main():
@@ -123,7 +128,8 @@ def main():
 
     # 3. Backtest
     bar = pd.Timedelta("15min") if args.tf == "15m" else pd.Timedelta("1h")
-    bt = Backtester(cfg, bars, signals, news=news, macro=macro, bar=bar)
+    bt = Backtester(cfg, bars, signals, news=news, macro=macro, bar=bar,
+                    costs={s: spread_cost(df, instruments.get(s)) for s, df in bars.items()})
     res = bt.run(args.start, args.end)
     print(report.summary(res))
 
