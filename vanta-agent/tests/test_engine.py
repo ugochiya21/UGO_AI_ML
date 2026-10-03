@@ -24,8 +24,8 @@ def one_signal(at_bar, d=1, stop=0.995, tp=1.0125, score=9):
                          "score": [score], "strategy": ["test"]}, index=[t])
 
 
-def run(path, sig, news=None):
-    bt = Backtester(AgentConfig(), {"EURUSD": bars(path)}, {"EURUSD": sig}, news=news)
+def run(path, sig, news=None, cfg=None):
+    bt = Backtester(cfg or AgentConfig(), {"EURUSD": bars(path)}, {"EURUSD": sig}, news=news)
     return bt.run(back_to_back=False)
 
 
@@ -48,8 +48,12 @@ def test_stop_hit_when_both_touched():
 
 
 def test_breakeven_then_stopped_flat():
+    # Breakeven is off by default (owner's choice); this checks it when on.
+    from dataclasses import replace
+    cfg = AgentConfig()
+    cfg.risk = replace(cfg.risk, breakeven_at_r=1.0)
     path = [FLAT] * 3 + [(1.0, 1.006, 0.9995, 1.004), (1.004, 1.0045, 0.998, 0.999)]
-    res = run(path, one_signal(1))
+    res = run(path, one_signal(1), cfg=cfg)
     assert res.trades[0].reason == "breakeven"
     assert abs(res.trades[0].pnl) < 1
 
