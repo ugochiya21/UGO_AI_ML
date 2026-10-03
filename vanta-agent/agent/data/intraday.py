@@ -1,4 +1,5 @@
-"""Free 15-minute bars, built from 1-minute data, cached under data/prices15/.
+"""Free intraday bars (5- or 15-minute), built from 1-minute data, cached
+under data/prices5/ and data/prices15/.
 
   * Forex                                     -> FXCM's free 1-minute candle
     files (weekly, bid AND ask - so the spread is known; no holes found)
@@ -7,7 +8,7 @@
     in short holes, news hours included - treat results with care.
   (Dukascopy's minute data comes one day per request and blocks fast
    clients, so it isn't practical here.)
-  * Crypto                                    -> Bitstamp public OHLC, 15-minute
+  * Crypto                                    -> Bitstamp public OHLC, 5/15-minute
 
 HistData times are New York standard time all year (UTC-5, no daylight
 saving); they are converted to UTC here. FXCM times are UTC. Prices are
@@ -27,7 +28,7 @@ import pandas as pd
 from agent.data.loaders import COLS, _HTTP, _get, bitstamp_ohlc
 from agent.instruments import CRYPTO, FOREX, Instrument
 
-CACHE = Path("data/prices15")
+CACHE = {"15min": Path("data/prices15"), "5min": Path("data/prices5")}
 RAW = Path("data/raw/histdata")
 
 # Vanta symbol -> HistData symbol (forex pairs use their own name).
@@ -36,8 +37,10 @@ HISTDATA = {"GOLDUSDC": "XAUUSD", "SILVERUSDC": "XAGUSD", "WTIOILUSDC": "WTIUSD"
 PAGE = "https://www.histdata.com/download-free-forex-historical-data/?/ascii/1-minute-bar-quotes/{s}/{y}"
 
 
-def load(inst: Instrument, start: str, end: str, refresh: bool = False) -> pd.DataFrame:
-    path = CACHE / f"{inst.symbol}_15m.csv.gz"
+def load(inst: Instrument, start: str, end: str, refresh: bool = False,
+         rule: str = "15min") -> pd.DataFrame:
+    tag = {"15min": "15m", "5min": "5m"}[rule]
+    path = CACHE[rule] / f"{inst.symbol}_{tag}.csv.gz"
     df = None
     if path.exists() and not refresh:
         df = pd.read_csv(path, index_col=0)
@@ -48,14 +51,17 @@ def load(inst: Instrument, start: str, end: str, refresh: bool = False) -> pd.Da
         df = None
     if df is None:
         if inst.asset_class == CRYPTO:
-            df = bitstamp_ohlc(inst.data_symbol, start, end, step=900)
+            df = bitstamp_ohlc(inst.data_symbol, start, end,
+                               step=int(pd.Timedelta(rule).total_seconds()))
         elif inst.asset_class == FOREX:
-            df = fxcm_15m(inst.symbol, start, end)
+            df = fxcm_bars(inst.symbol, start, end, rule)
+            if df.empty:   # FXCM doesn't carry every cross (CHFJPY, EURCAD, GBPAUD)
+                df = histdata_bars(inst.symbol, start, end, rule)
         else:
-            df = histdata_15m(HISTDATA.get(inst.symbol, inst.symbol), start, end)
+            df = histdata_bars(HISTDATA.get(inst.symbol, inst.symbol), start, end, rule)
         if df.empty:
-            raise ValueError(f"no 15-minute bars downloaded for {inst.symbol}")
-        CACHE.mkdir(parents=True, exist_ok=True)
+            raise ValueError(f"no {tag} bars downloaded for {inst.symbol}")
+        path.parent.mkdir(parents=True, exist_ok=True)
         df.to_csv(path, compression="gzip")
     return df.loc[pd.Timestamp(start, tz="UTC"):pd.Timestamp(end, tz="UTC")]
 
@@ -85,7 +91,7 @@ def histdata_year(symbol: str, year: int, month: int | None = None) -> bytes:
     return r.content
 
 
-def histdata_15m(symbol: str, start: str, end: str) -> pd.DataFrame:
+def histdata_bars(symbol: str, start: str, end: str, rule: str = "15min") -> pd.DataFrame:
     parts, missing = [], []
     now = pd.Timestamp.now(tz="UTC")
     chunks = []
@@ -105,7 +111,7 @@ def histdata_15m(symbol: str, start: str, end: str) -> pd.DataFrame:
                              names=["time", *COLS, "volume"], usecols=[0, 1, 2, 3, 4])
         m1.index = (pd.to_datetime(m1.pop("time"), format="%Y%m%d %H%M%S")
                     + pd.Timedelta(hours=5)).dt.tz_localize("UTC")
-        parts.append(to_15m(m1))
+        parts.append(to_bars(m1, rule))
     if missing:
         print(f"    {symbol}: no HistData file for {missing}")
     if not parts:
@@ -114,8 +120,8 @@ def histdata_15m(symbol: str, start: str, end: str) -> pd.DataFrame:
     return df[~df.index.duplicated()].sort_index()
 
 
-def to_15m(m1: pd.DataFrame) -> pd.DataFrame:
-    df = m1.resample("15min", label="left", closed="left").agg(
+def to_bars(m1: pd.DataFrame, rule: str = "15min") -> pd.DataFrame:
+    df = m1.resample(rule, label="left", closed="left").agg(
         {"open": "first", "high": "max", "low": "min", "close": "last"})
     return df.dropna()
 
@@ -141,16 +147,26 @@ def fxcm_week(symbol: str, year: int, week: int) -> bytes:
     return r.content
 
 
-def fxcm_15m(symbol: str, start: str, end: str, workers: int = 8) -> pd.DataFrame:
+def fxcm_bars(symbol: str, start: str, end: str, rule: str = "15min",
+              workers: int = 8) -> pd.DataFrame:
     weeks = [(y, w) for y in range(pd.Timestamp(start).year, pd.Timestamp(end).year + 1)
              for w in range(1, 54)]
     with ThreadPoolExecutor(workers) as ex:
         blobs = list(ex.map(lambda yw: fxcm_week(symbol, *yw), weeks))
     parts = []
-    for b in blobs:
+    for (y, w), b in zip(weeks, blobs):
         if not b:
             continue
-        d = pd.read_csv(io.BytesIO(gzip.decompress(b)))
+        try:
+            d = pd.read_csv(io.BytesIO(gzip.decompress(b)))
+        except (OSError, EOFError, ValueError):
+            # Damaged download: fetch it once more, else skip that week.
+            (FXCM_RAW / symbol / f"{y}-{w:02d}.csv.gz").unlink(missing_ok=True)
+            try:
+                d = pd.read_csv(io.BytesIO(gzip.decompress(fxcm_week(symbol, y, w))))
+            except (OSError, EOFError, ValueError):
+                print(f"    {symbol}: week {y}-{w:02d} unreadable, skipped")
+                continue
         d.index = pd.to_datetime(d.pop("DateTime"), format="%m/%d/%Y %H:%M:%S.%f").dt.tz_localize("UTC")
         m1 = pd.DataFrame({"open": d.BidOpen, "high": d.BidHigh, "low": d.BidLow,
                            "close": d.BidClose, "spread": d.AskClose - d.BidClose})
@@ -159,7 +175,7 @@ def fxcm_15m(symbol: str, start: str, end: str, workers: int = 8) -> pd.DataFram
         return pd.DataFrame(columns=[*COLS, "spread"])
     m1 = pd.concat(parts)
     m1 = m1[~m1.index.duplicated()].sort_index()
-    df = m1.resample("15min", label="left", closed="left").agg(
+    df = m1.resample(rule, label="left", closed="left").agg(
         {"open": "first", "high": "max", "low": "min", "close": "last", "spread": "median"})
     df = df.dropna(subset=["close"])
     return df.loc[pd.Timestamp(start, tz="UTC"):pd.Timestamp(end, tz="UTC") + pd.Timedelta(days=1)]

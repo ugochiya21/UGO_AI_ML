@@ -31,10 +31,11 @@ class RiskConfig:
     # breakeven_frees_budget and after_stop_loss below).
     max_open_risk_pct: float = 0.01
 
-    # Risk per single trade (fraction of starting balance).
-    risk_per_trade_pct: float = 0.005
+    # Risk per single trade (fraction of starting balance). Owner: many best
+    # setups may share the 1% - 0.2% ($10) each, so up to 5 trades at once.
+    risk_per_trade_pct: float = 0.002
     # Smaller risk when protecting a near-pass or recovering from a loss.
-    reduced_risk_per_trade_pct: float = 0.0025
+    reduced_risk_per_trade_pct: float = 0.001
 
     # Move stop to breakeven once price has moved this many R in our favour.
     # None = never move the stop (owner's decision after the backtests).

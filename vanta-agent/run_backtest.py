@@ -22,6 +22,7 @@ from agent.news import calendar
 from agent.news.guard import NewsGuard
 from agent.strategies import features, session_sweep, trend_pullback
 from agent.strategies import intraday as intraday_strats
+from agent.strategies import mtf
 
 CAL_PATH = Path("data/forexfactory_calendar.csv")
 
@@ -39,8 +40,9 @@ def main():
     ap.add_argument("--synthetic", action="store_true")
     ap.add_argument("--no-news", action="store_true", help="disable the news rule (for comparison)")
     ap.add_argument("--no-macro", action="store_true", help="disable the fundamental filter")
-    ap.add_argument("--tf", choices=["1h", "15m"], default="1h",
-                    help="bar size: 1h (swing strategies) or 15m (intraday strategies)")
+    ap.add_argument("--tf", choices=["1h", "15m", "5m"], default="5m",
+                    help="5m: owner's intraday 1h/15m/5m strategies (default); "
+                         "15m: earlier intraday; 1h: earlier swing")
     ap.add_argument("--strategies", nargs="*",
                     help="1h: trend_pullback session_sweep; 15m: intraday_pullback orb")
     ap.add_argument("--min-hours-before-news", type=float,
@@ -67,8 +69,9 @@ def main():
     if args.min_hours_before_news:
         over["min_hours_before_news"] = args.min_hours_before_news
     if not args.strategies:
-        args.strategies = (["trend_pullback", "session_sweep"] if args.tf == "1h"
-                           else list(intraday_strats.STRATEGIES))
+        args.strategies = {"1h": ["trend_pullback", "session_sweep"],
+                           "15m": list(intraday_strats.STRATEGIES),
+                           "5m": list(mtf.STRATEGIES)}[args.tf]
     if args.min_score:
         over["min_setup_score"] = args.min_score
     cfg.risk = replace(cfg.risk, **over)
@@ -96,9 +99,10 @@ def main():
             if args.synthetic:
                 from agent.data import synthetic
                 df = synthetic.make(inst, data_start, args.end, seed=i)
-            elif args.tf == "15m":
+            elif args.tf in ("15m", "5m"):
                 from agent.data import intraday
-                df = intraday.load(inst, data_start, args.end)
+                df = intraday.load(inst, data_start, args.end,
+                                   rule={"15m": "15min", "5m": "5min"}[args.tf])
             else:
                 from agent.data import loaders
                 df = loaders.load(inst, data_start, args.end)
@@ -109,7 +113,12 @@ def main():
             print(f"  ! {sym}: only {len(df)} bars, skipped")
             continue
         parts = []
-        if args.tf == "15m":
+        if args.tf == "5m":
+            f = mtf.features(df, inst)
+            # Stop never so tight that Vanta's spread + slippage exceed 8% of the risk.
+            min_stop = spread_cost(df, inst) / 0.08
+            parts = [mtf.STRATEGIES[s](f, inst, min_stop_frac=min_stop) for s in args.strategies]
+        elif args.tf == "15m":
             f = intraday_strats.features(df, inst)
             parts = [intraday_strats.STRATEGIES[s](f, inst, events) for s in args.strategies]
         else:
@@ -127,7 +136,7 @@ def main():
         raise SystemExit("No price data loaded.")
 
     # 3. Backtest
-    bar = pd.Timedelta("15min") if args.tf == "15m" else pd.Timedelta("1h")
+    bar = pd.Timedelta({"1h": "1h", "15m": "15min", "5m": "5min"}[args.tf])
     bt = Backtester(cfg, bars, signals, news=news, macro=macro, bar=bar,
                     costs={s: spread_cost(df, instruments.get(s)) for s, df in bars.items()})
     res = bt.run(args.start, args.end)

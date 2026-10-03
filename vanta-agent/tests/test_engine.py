@@ -44,7 +44,7 @@ def test_stop_hit_when_both_touched():
     path = [FLAT] * 3 + [(1.0, 1.02, 0.99, 1.0)] + [FLAT]
     res = run(path, one_signal(1))
     assert res.trades[0].reason == "stop"
-    assert res.trades[0].pnl == pytest.approx(-25, rel=0.01)
+    assert res.trades[0].pnl == pytest.approx(-10, rel=0.01)
 
 
 def test_breakeven_then_stopped_flat():

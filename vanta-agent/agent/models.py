@@ -36,6 +36,10 @@ class Position:
     initial_stop: float = 0.0
     fees: float = 0.0
     carry: float = 0.0
+    # Sizing record: trades open (this one included) and their combined
+    # risk when this trade was opened.
+    opened_with: int = 1
+    budget_used: float = 0.0
 
     def __post_init__(self):
         if not self.initial_stop:
@@ -72,3 +76,8 @@ class ClosedTrade:
     pnl: float                # net of fees and carry
     r_multiple: float
     reason: str               # "stop", "target", "breakeven", "news", "weekend", ...
+    risk_usd: float = 0.0     # money at risk when opened (entry to stop)
+    stop: float = 0.0
+    take_profit: float = 0.0
+    opened_with: int = 1      # open trades at entry, this one included
+    budget_used: float = 0.0  # their combined risk at entry (<= 1% = $50)

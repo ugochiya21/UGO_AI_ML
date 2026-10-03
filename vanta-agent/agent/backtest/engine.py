@@ -105,7 +105,9 @@ class Backtester:
             r = net / p.initial_risk_usd() if p.initial_risk_usd() else 0.0
             res.trades.append(ClosedTrade(p.symbol, p.direction, p.strategy, p.score,
                                           p.opened_at, t, p.entry, price, p.notional,
-                                          net, r, reason))
+                                          net, r, reason, p.initial_risk_usd(),
+                                          p.initial_stop, p.take_profit, p.opened_with,
+                                          p.budget_used))
             positions.remove(p)
             ch_trades += 1
             consecutive_losses = consecutive_losses + 1 if net < 0 else 0
@@ -238,4 +240,6 @@ class Backtester:
                          decision_time, sig.strategy, sig.score)
             p.fees = dec.notional * (inst.fee_rate + self.costs.get(sym, 0.0))
             positions.append(p)
+            p.opened_with = len(positions)
+            p.budget_used = self.risk.open_risk(positions)
             monitor.order_placed(decision_time)

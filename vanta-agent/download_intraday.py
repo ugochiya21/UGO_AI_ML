@@ -1,6 +1,7 @@
-"""Download 15-minute bars for every market and sanity-check them.
+"""Download intraday bars for every market and sanity-check them.
 
-  python download_intraday.py                    # 2019-2025, report on 2019-2023
+  python download_intraday.py                    # 5-minute, 2019-2025, report on 2019-2023
+  python download_intraday.py --tf 15m
 
 Downloads are kept under data/raw/, so re-running only fetches what's
 missing. The report stops at --report-end so we don't look at the hidden
@@ -22,6 +23,7 @@ def main():
     ap.add_argument("--end", default="2025-12-31")
     ap.add_argument("--report-end", default="2023-12-31")
     ap.add_argument("--symbols", nargs="*")
+    ap.add_argument("--tf", choices=["5m", "15m"], default="5m")
     args = ap.parse_args()
     syms = args.symbols or [s for s, i in instruments.UNIVERSE.items() if i.asset_class not in SKIP]
 
@@ -29,7 +31,8 @@ def main():
           f" {'spread':>8s} {'holes>1h':>8s}")
     for sym in syms:
         try:
-            df = intraday.load(instruments.get(sym), args.start, args.end)
+            df = intraday.load(instruments.get(sym), args.start, args.end,
+                               rule={"5m": "5min", "15m": "15min"}[args.tf])
         except Exception as e:  # noqa: BLE001 - report and carry on
             print(f"{sym:12s} FAILED: {e}")
             continue

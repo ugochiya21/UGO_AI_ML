@@ -62,12 +62,12 @@ def approve(rm, s, positions=(), balance=5000, equity=5000, day_open=5000, now=T
                       day_open_equity=day_open, now=now, consecutive_losses=losses)
 
 
-def test_sizes_trade_to_half_percent(rm):
+def test_sizes_trade_to_point_two_percent(rm):
     d = approve(rm, sig())
     assert d.approved
-    assert d.risk_usd == pytest.approx(25.0)
-    # 25 / (0.005/1.10) = 5,500 notional
-    assert d.notional == pytest.approx(5500, rel=1e-6)
+    assert d.risk_usd == pytest.approx(10.0)
+    # 10 / (0.005/1.10) = 2,200 notional
+    assert d.notional == pytest.approx(2200, rel=1e-6)
 
 
 def test_total_open_risk_never_above_one_percent(rm):
@@ -108,7 +108,7 @@ def test_after_stop_loss_half_size_until_two_tps():
     object.__setattr__(cfg.risk, "after_stop_loss", "half_2tp")
     d = RiskManager(cfg).approve(sig(), get("EURUSD"), [], balance=5000, equity=5000,
                                  day_open_equity=5000, now=T, tps_owed=2)
-    assert d.approved and d.risk_usd == pytest.approx(12.5)
+    assert d.approved and d.risk_usd == pytest.approx(5.0)
 
 
 def test_after_stop_loss_wait_for_two_tps():
@@ -136,15 +136,15 @@ def test_rejects_correlated_trade(rm):
 def test_safety_lines(rm):
     # Owner: never stop trading - below $4,800 still trades, at reduced size.
     low = approve(rm, sig(), equity=4790, day_open=4790)
-    assert low.approved and low.risk_usd == pytest.approx(12.5)
+    assert low.approved and low.risk_usd == pytest.approx(5.0)
     small = approve(rm, sig(), equity=4860, day_open=4860)        # below $4,875
-    assert small.approved and small.risk_usd == pytest.approx(12.5)
+    assert small.approved and small.risk_usd == pytest.approx(5.0)
     assert not approve(rm, sig(), equity=5040, day_open=5100).approved  # -1.2% today
 
 
 def test_protects_near_target(rm):
     d = approve(rm, sig(), balance=5420, equity=5420, day_open=5420)
-    assert d.risk_usd == pytest.approx(12.5)
+    assert d.risk_usd == pytest.approx(5.0)
 
 
 def test_can_still_trade_cents_from_target(rm):
@@ -160,7 +160,7 @@ def test_weekend_rules(rm):
     assert not approve(rm, sig(), now=sat).approved
     btc = Signal("BTCUSDC", 1, 50000, 49500, 51250, "test", 9, sat)
     d = approve(rm, btc, now=sat)
-    assert d.approved and d.risk_usd == pytest.approx(12.5)   # half size on weekends
+    assert d.approved and d.risk_usd == pytest.approx(5.0)   # half size on weekends
 
 
 def test_after_stop_loss_wait_for_a_tp_while_trades_are_open(rm):
