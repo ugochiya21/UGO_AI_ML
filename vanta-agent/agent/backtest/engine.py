@@ -16,6 +16,7 @@ import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 
+import numpy as np
 import pandas as pd
 
 from agent.config import AgentConfig
@@ -74,10 +75,14 @@ class Backtester:
         times = sorted(set().union(*[df.index for df in self.bars.values()]))
         times = [t for t in times if (start is None or t >= pd.Timestamp(start, tz="UTC"))
                  and (end is None or t <= pd.Timestamp(end, tz="UTC"))]
-        # Fast row access: {symbol: {time: (open, high, low, close)}}
-        lookup = {s: dict(zip(df.index, df[["open", "high", "low", "close"]]
-                              .itertuples(index=False, name=None)))
+        # Light row access: plain arrays per symbol plus a moving pointer
+        # (times are walked in order), instead of a dict of every bar -
+        # 36 markets of 5-minute bars must fit in a few GB of memory.
+        arrays = {s: (df.index.as_unit("ns").asi8, df["open"].to_numpy(float), df["high"].to_numpy(float),
+                      df["low"].to_numpy(float), df["close"].to_numpy(float))
                   for s, df in self.bars.items()}
+        ptr = {s: int(np.searchsorted(a[0], times[0].value)) if times else 0
+               for s, a in arrays.items()}
         sigs = defaultdict(list)   # {time: [(symbol, row), ...]}
         for s, sdf in self.signals.items():
             for row in sdf.itertuples():
@@ -128,11 +133,15 @@ class Backtester:
             monitor.new_day_if_needed(t, eq_now)
 
             worst_eq_adj = 0.0
-            for sym, rows in lookup.items():
-                bar = rows.get(t)
-                if bar is None:
+            tn = t.value
+            for sym, (ix, O, H, L, C) in arrays.items():
+                i = ptr[sym]
+                while i < len(ix) and ix[i] < tn:
+                    i += 1
+                ptr[sym] = i
+                if i >= len(ix) or ix[i] != tn:
                     continue
-                o, h, l, c = bar
+                o, h, l, c = float(O[i]), float(H[i]), float(L[i]), float(C[i])
                 inst = get(sym)
                 for p in [p for p in positions if p.symbol == sym]:
                     # Carry for the hour held.

@@ -86,6 +86,14 @@ UNIVERSE = {i.symbol: i for i in [
     Instrument("BTCUSDC", CRYPTO, ("USD",), {"CRYPTO": 1}, 1.5, "binance", "BTCUSDT", True),
     Instrument("ETHUSDC", CRYPTO, ("USD",), {"CRYPTO": 1}, 1.5, "binance", "ETHUSDT", True),
     Instrument("SOLUSDC", CRYPTO, ("USD",), {"CRYPTO": 1}, 1.5, "binance", "SOLUSDT", True),
+    # More of Vanta's 34 crypto perps (all on Bitstamp except XMR, PUMP).
+    # Per-pair buying power: XRP, DOGE 1.5x; the other alts 0.5x.
+    # PEPE/SHIB trade on Vanta as kPEPE/kSHIB (per 1,000 coins) - same moves.
+    *[Instrument(f"{c}USDC", CRYPTO, ("USD",), {"CRYPTO": 1},
+                 1.5 if c in ("XRP", "DOGE") else 0.5, "binance", f"{c}USDT", True)
+      for c in ("XRP", "DOGE", "BNB", "ADA", "AVAX", "LINK", "DOT", "TRX", "LTC", "BCH",
+                "TAO", "SUI", "ARB", "NEAR", "ALGO", "ASTER", "UNI", "AAVE", "CRV", "HYPE",
+                "ZEC", "ENA", "ZRO", "WLD", "PEPE", "HBAR", "XLM", "SHIB", "CC")],
     # A few of the most liquid US stocks
     *[Instrument(t, EQUITIES, ("USD",), {"US_EQUITY": 1, f"STOCK_{t}": 1}, 0.5,
                  "yahoo", t, False, (14, 21))
